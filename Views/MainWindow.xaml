@@ -1,0 +1,396 @@
+<ui:FluentWindow x:Class="AFK_Assist.Views.MainWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 xmlns:viewmodels="clr-namespace:AFK_Assist.ViewModels"
+                 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+                 d:DataContext="{d:DesignInstance Type=viewmodels:MainViewModel}"
+                 mc:Ignorable="d"
+                 Title="AFK Assist"
+                 Width="840"
+                 Height="630"
+                 MinWidth="780"
+                 MinHeight="630"
+                 Background="{DynamicResource ApplicationBackgroundBrush}"
+                 ExtendsContentIntoTitleBar="True"
+                 Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                 Topmost="True"
+                 WindowBackdropType="Mica"
+                 WindowStartupLocation="CenterScreen">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- TitleBar -->
+        <ui:TitleBar Grid.Row="0"
+                     Title="AFK Assist">
+            <ui:TitleBar.TrailingContent>
+                <StackPanel Margin="0,0,8,0"
+                            Orientation="Horizontal">
+                    <ui:Button Appearance="Transparent"
+                               Command="{Binding ShowHowToUseCommand}"
+                               Icon="{ui:SymbolIcon QuestionCircle24}"
+                               ToolTip="How To Use" />
+                    <ui:Button Appearance="Transparent"
+                               Command="{Binding CheckForUpdatesCommand}"
+                               Icon="{ui:SymbolIcon ArrowSync24}"
+                               ToolTip="Check For Updates" />
+                </StackPanel>
+            </ui:TitleBar.TrailingContent>
+        </ui:TitleBar>
+
+        <!-- InfoBar -->
+        <ui:InfoBar x:Name="NoticeBar"
+                    Grid.Row="1"
+                    Margin="16,0,16,12"
+                    IsClosable="False"
+                    IsOpen="{Binding HasNotice, Mode=OneWay}"
+                    Message="{Binding NoticeMessage}"
+                    Severity="{Binding NoticeSeverity}" />
+
+        <Grid Grid.Row="2"
+              Margin="16,0,16,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="320" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+
+            <!-- Input Card -->
+            <ui:Card Grid.Row="0"
+                     Grid.Column="0"
+                     VerticalAlignment="Stretch"
+                     VerticalContentAlignment="Stretch"
+                     IsEnabled="{Binding CanEditConfiguration}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="12" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0"
+                                VerticalAlignment="Top">
+                        <ui:TextBlock FontTypography="BodyStrong"
+                                      Text="Mouse" />
+                        <CheckBox Margin="0,10,0,0"
+                                  Content="Left Click"
+                                  IsChecked="{Binding MouseLeftClickEnabled}" />
+                        <CheckBox Content="Right Click"
+                                  IsChecked="{Binding MouseRightClickEnabled}" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2"
+                                VerticalAlignment="Top">
+                        <ui:TextBlock FontTypography="BodyStrong"
+                                      Text="Keyboard" />
+                        <CheckBox Margin="0,10,0,0"
+                                  Content="{Binding ForwardKeyLabel}"
+                                  IsChecked="{Binding ForwardKeyEnabled}" />
+                        <CheckBox Content="{Binding LeftKeyLabel}"
+                                  IsChecked="{Binding LeftKeyEnabled}" />
+                        <CheckBox Content="S Key"
+                                  IsChecked="{Binding BackwardKeyEnabled}" />
+                        <CheckBox Content="D Key"
+                                  IsChecked="{Binding RightKeyEnabled}" />
+                    </StackPanel>
+                </Grid>
+            </ui:Card>
+
+            <!-- ScrollViewer -->
+            <ScrollViewer Grid.Row="1"
+                          Grid.Column="0"
+                          Margin="0,12,0,0"
+                          VerticalScrollBarVisibility="Auto">
+                <StackPanel IsEnabled="{Binding CanEditConfiguration}">
+
+                    <!-- Speed Card -->
+                    <ui:Card>
+                        <StackPanel>
+                            <Grid>
+                                <ui:TextBlock FontTypography="BodyStrong"
+                                              Text="Speed" />
+                                <ui:TextBlock HorizontalAlignment="Right"
+                                              Appearance="Secondary"
+                                              Text="{Binding SpeedLabel}" />
+                            </Grid>
+                            <Slider Margin="0,8,0,0"
+                                    IsSnapToTickEnabled="True"
+                                    Maximum="10"
+                                    Minimum="1"
+                                    TickFrequency="1"
+                                    Value="{Binding SimulationsPerMinute}" />
+                        </StackPanel>
+                    </ui:Card>
+
+                    <!-- Duration Card -->
+                    <ui:Card Margin="0,12,0,0">
+                        <StackPanel>
+                            <Grid>
+                                <ui:TextBlock VerticalAlignment="Center"
+                                              FontTypography="BodyStrong"
+                                              Text="Duration" />
+                                <StackPanel HorizontalAlignment="Right"
+                                            Orientation="Horizontal">
+                                    <ui:Button Padding="8,2"
+                                               Command="{Binding ApplyDurationPresetCommand}"
+                                               CommandParameter="15"
+                                               Content="15m"
+                                               FontSize="11" />
+                                    <ui:Button Margin="4,0,0,0"
+                                               Padding="8,2"
+                                               Command="{Binding ApplyDurationPresetCommand}"
+                                               CommandParameter="30"
+                                               Content="30m"
+                                               FontSize="11" />
+                                    <ui:Button Margin="4,0,0,0"
+                                               Padding="8,2"
+                                               Command="{Binding ApplyDurationPresetCommand}"
+                                               CommandParameter="60"
+                                               Content="1h"
+                                               FontSize="11" />
+                                    <ui:Button Margin="4,0,0,0"
+                                               Padding="8,2"
+                                               Command="{Binding ApplyDurationPresetCommand}"
+                                               CommandParameter="480"
+                                               Content="8h"
+                                               FontSize="11" />
+                                </StackPanel>
+                            </Grid>
+                            <Grid Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="12" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <ui:NumberBox ClearButtonEnabled="False"
+                                                  Maximum="8"
+                                                  Minimum="0"
+                                                  Value="{Binding DurationHours, UpdateSourceTrigger=PropertyChanged}" />
+                                    <ui:TextBlock Margin="0,6,0,0"
+                                                  Appearance="Tertiary"
+                                                  FontTypography="Caption"
+                                                  Text="Hours" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <ui:NumberBox ClearButtonEnabled="False"
+                                                  Maximum="59"
+                                                  Minimum="0"
+                                                  Value="{Binding DurationMinutes, UpdateSourceTrigger=PropertyChanged}" />
+                                    <ui:TextBlock Margin="0,6,0,0"
+                                                  Appearance="Tertiary"
+                                                  FontTypography="Caption"
+                                                  Text="Minutes" />
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </ui:Card>
+
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Time Card -->
+            <ui:Card Grid.Row="2"
+                     Grid.Column="0"
+                     Margin="0,12,0,0">
+                <StackPanel>
+                    <Grid>
+                        <StackPanel HorizontalAlignment="Left">
+                            <ui:TextBlock Appearance="Tertiary"
+                                          FontTypography="Caption"
+                                          Text="Elapsed" />
+                            <ui:TextBlock FontTypography="BodyStrong"
+                                          Text="{Binding ElapsedLabel}" />
+                        </StackPanel>
+                        <StackPanel HorizontalAlignment="Right">
+                            <ui:TextBlock HorizontalAlignment="Right"
+                                          Appearance="Tertiary"
+                                          FontTypography="Caption"
+                                          Text="Remaining" />
+                            <ui:TextBlock HorizontalAlignment="Right"
+                                          FontTypography="BodyStrong"
+                                          Text="{Binding RemainingLabel}" />
+                        </StackPanel>
+                    </Grid>
+                    <ProgressBar Height="4"
+                                 Margin="0,12,0,0"
+                                 Value="{Binding ProgressPercentage}" />
+                </StackPanel>
+            </ui:Card>
+
+            <!-- Action Buttons -->
+            <Grid Grid.Row="3"
+                  Grid.Column="0"
+                  Margin="0,12,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="12" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <ui:Button Grid.Column="0"
+                           Height="36"
+                           HorizontalAlignment="Stretch"
+                           Appearance="Primary"
+                           Command="{Binding StartOrPauseCommand}"
+                           Content="{Binding StartButtonLabel}">
+                    <ui:Button.Icon>
+                        <ui:SymbolIcon Symbol="{Binding StartButtonSymbol}" />
+                    </ui:Button.Icon>
+                </ui:Button>
+                <ui:Button Grid.Column="2"
+                           Height="36"
+                           HorizontalAlignment="Stretch"
+                           Command="{Binding StopCommand}"
+                           Content="Stop"
+                           Icon="{ui:SymbolIcon Stop24}" />
+            </Grid>
+
+            <!-- Options Card -->
+            <ui:Card Grid.Row="0"
+                     Grid.Column="2"
+                     VerticalAlignment="Stretch"
+                     VerticalContentAlignment="Stretch"
+                     IsEnabled="{Binding CanEditConfiguration}">
+                <StackPanel VerticalAlignment="Top">
+                    <ui:TextBlock FontTypography="BodyStrong"
+                                  Text="Options" />
+                    <Grid Margin="0,12,0,0">
+                        <ui:ToggleSwitch VerticalAlignment="Center"
+                                         Content="Switch To Game Automatically"
+                                         IsChecked="{Binding SwitchToGameEnabled}" />
+                        <ComboBox Width="170"
+                                  HorizontalAlignment="Right"
+                                  IsEnabled="{Binding SwitchToGameEnabled}"
+                                  ItemsSource="{Binding AvailableGames}"
+                                  SelectedItem="{Binding SelectedGame}"
+                                  ToolTip="Which Game To Bring Forward" />
+                    </Grid>
+                    <ui:ToggleSwitch Margin="0,8,0,0"
+                                     Content="Randomize Simulation"
+                                     IsChecked="{Binding RandomizeSimulationEnabled}" />
+                    <ui:ToggleSwitch Margin="0,8,0,0"
+                                     Content="Randomize Intervals"
+                                     IsChecked="{Binding RandomizeIntervalsEnabled}" />
+                    <ui:ToggleSwitch Margin="0,8,0,0"
+                                     Content="Azerty Layout"
+                                     IsChecked="{Binding AzertyLayoutEnabled}" />
+                </StackPanel>
+            </ui:Card>
+
+            <!-- Activity Card -->
+            <ui:Card Grid.Row="1"
+                     Grid.RowSpan="3"
+                     Grid.Column="2"
+                     Margin="0,12,0,0"
+                     VerticalAlignment="Stretch"
+                     VerticalContentAlignment="Stretch">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <ui:TextBlock Grid.Row="0"
+                                  FontTypography="BodyStrong"
+                                  Text="Activity" />
+                    <ListBox x:Name="LogListBox"
+                             Grid.Row="1"
+                             Margin="-4,8,-4,0"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             FontFamily="Cascadia Mono, Consolas, Courier New"
+                             FontSize="12"
+                             ItemsSource="{Binding LogEntries}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Focusable"
+                                        Value="False" />
+                                <Setter Property="Padding"
+                                        Value="8,2" />
+                                <Setter Property="HorizontalContentAlignment"
+                                        Value="Stretch" />
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="RowBorder"
+                                                    Padding="{TemplateBinding Padding}"
+                                                    Background="Transparent"
+                                                    CornerRadius="4">
+                                                <ContentPresenter />
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver"
+                                                         Value="True">
+                                                    <Setter TargetName="RowBorder"
+                                                            Property="Background"
+                                                            Value="{DynamicResource SubtleFillColorSecondaryBrush}" />
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="12" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0"
+                                               Foreground="{DynamicResource TextFillColorDisabledBrush}"
+                                               Text="{Binding Time}" />
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding Message}"
+                                               TextTrimming="CharacterEllipsis">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground"
+                                                        Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Kind}"
+                                                                 Value="Input">
+                                                        <Setter Property="Foreground"
+                                                                Value="{DynamicResource TextFillColorTertiaryBrush}" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Kind}"
+                                                                 Value="Success">
+                                                        <Setter Property="Foreground"
+                                                                Value="{DynamicResource SystemFillColorSuccessBrush}" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Kind}"
+                                                                 Value="Warning">
+                                                        <Setter Property="Foreground"
+                                                                Value="{DynamicResource SystemFillColorCautionBrush}" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Kind}"
+                                                                 Value="Error">
+                                                        <Setter Property="Foreground"
+                                                                Value="{DynamicResource SystemFillColorCriticalBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </ui:Card>
+
+        </Grid>
+    </Grid>
+</ui:FluentWindow>
