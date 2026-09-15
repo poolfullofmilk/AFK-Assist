@@ -8,13 +8,15 @@ Keep Your Game Active While You Are Away By Simulating Keyboard And Mouse Input
 
 ## Features
 - Keyboard (WASD Or Chosen Keys) And Mouse (Left/Right) Simulation
+- One Custom Key, Recorded By Pressing It
 - Adjustable Speed (1-10 Simulations Per Minute) And Duration (Up To 8 Hours)
-- Duration Presets For 15m, 30m, 1h And 8h
+- Duration Presets For 15m, 30m, 1h And 8h, Plus An Optional Start Delay
 - Optional: Randomized Patterns, Randomized Intervals, Auto Focus To Game Window, Azerty Auto Detection
 - Picks Any Installed Game To Focus, Or Finds A Running One Automatically
 - Live Activity Log With Elapsed And Remaining Timers
+- Every Run Is Saved To Documents, Clearable From The App
 - Settings Are Remembered Between Sessions
-- Pause, Resume And Stop Anytime
+- Pause To Change Anything Mid Run, Then Resume
 
 ## Quick Start
 1. Choose Mouse Clicks

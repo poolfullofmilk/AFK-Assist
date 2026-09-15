@@ -21,6 +21,8 @@ internal static partial class InputSimulator
     private const ushort VirtualKeyZ = 0x5A;
     private const ushort VirtualKeyQ = 0x51;
 
+    private const uint MapVirtualKeyToScanCode = 0;
+
     private const uint InputTypeMouse = 0;
     private const uint InputTypeKeyboard = 1;
     private const uint KeyEventKeyUp = 0x0002;
@@ -46,6 +48,9 @@ internal static partial class InputSimulator
     public static SimulatedKey Backward() => new(VirtualKeyS, ScanCodeBackward);
 
     public static SimulatedKey Right() => new(VirtualKeyD, ScanCodeRight);
+
+    public static SimulatedKey Custom(ushort virtualKey) =>
+        new(virtualKey, (ushort)MapVirtualKeyW(virtualKey, MapVirtualKeyToScanCode));
 
     public static async Task TapKeyAsync(SimulatedKey key, int holdMilliseconds)
     {
@@ -140,6 +145,9 @@ internal static partial class InputSimulator
 
     [LibraryImport("user32.dll", SetLastError = true)]
     private static partial uint SendInput(uint count, ref Input inputs, int size);
+
+    [LibraryImport("user32.dll")]
+    private static partial uint MapVirtualKeyW(uint code, uint mapType);
 
     [LibraryImport("user32.dll")]
     private static partial short VkKeyScanExW(ushort character, nint keyboardLayout);

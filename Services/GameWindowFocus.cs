@@ -40,7 +40,7 @@ internal static partial class GameWindowFocus
         string? preferredProcessKey
     )
     {
-        var installedGames = GameScanner.InstalledGameProcessNames;
+        var installedGames = GameScanner.InstalledGames;
 
         foreach (var process in Process.GetProcesses())
         {
@@ -53,7 +53,7 @@ internal static partial class GameWindowFocus
 
                 var processKey = GameScanner.NormalizeProcessKey(process.ProcessName);
                 var matches = preferredProcessKey is null
-                    ? installedGames.Contains(processKey)
+                    ? installedGames.ContainsKey(processKey)
                     : processKey == preferredProcessKey;
 
                 if (matches)

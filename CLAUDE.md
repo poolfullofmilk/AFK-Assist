@@ -31,11 +31,11 @@ dotnet build
 There is no test project and none is wanted. Two `Debug.Assert` checks stand in for one:
 
 - `SimulationSchedule.CreateForOneMinute` asserts the schedule holds exactly the requested number of actions and that all of them land inside the minute.
-- `GameScanner`'s static constructor asserts `SelfTestPasses()`, which covers process-name normalization, executable scoring, and the reject list.
+- `GameScanner`'s static constructor asserts `SelfTestPasses()`, which covers process-name normalization, executable scoring, display names, and the reject list.
 
 Both only fire in Debug. If you change schedule maths, name normalization, or executable scoring, extend the assertion in that same file rather than adding a framework.
 
-To exercise the scanner on its own without launching the UI, compile `Services/GameScanner.cs` into a throwaway console project and print `GameScanner.InstalledGameProcessNames`. It is `internal`, so a separate assembly must include the source file rather than reference the exe.
+To exercise the scanner on its own without launching the UI, compile `Services/GameScanner.cs` into a throwaway console project and print `GameScanner.InstalledGames`. It is `internal`, so a separate assembly must include the source file rather than reference the exe.
 
 ## Shipping A Single Executable
 
@@ -84,9 +84,12 @@ Services/GameScanner.cs         Finds installed games on disk
 Services/SimulationSchedule.cs  When inside a minute each action fires
 Services/UpdateChecker.cs       GitHub latest-release comparison
 Services/UserSettings.cs        Configuration persisted to %AppData%
+Services/RunLog.cs              One text file per run under Documents
 ```
 
-There is no dependency injection container, no navigation, no messenger, and no repository layer. One window, one view model, six services. Keep it that way.
+There is no dependency injection container, no navigation, no messenger, and no repository layer. One window, one view model, seven services. Keep it that way.
+
+`RunLog` writes one `Run yyyy-MM-dd HH-mm-ss.txt` per run to `Documents\AFK Assist\Logs`. `AppendLog` appends a line at a time rather than dumping the log at the end, so a crash or a power cut still leaves the run on disk. Every call swallows its exceptions — a log file must never take a run down with it.
 
 `UserSettings` is a record with `Load` and `Save` on it rather than a static class, because the thing being loaded and saved is the record itself. It writes `%AppData%\AFK Assist\settings.json` from the window's `Closing` handler and both directions swallow every exception — a settings file must never stop the app opening or closing. The Azerty flag is deliberately not persisted: it is detected from the active keyboard layout on every launch.
 
@@ -139,7 +142,7 @@ Inside each root it picks the main executable by score: `win64` and `shipping` e
 
 Executable names are normalized to a process key by lowercasing and stripping `_` and `-`, with two hard-coded aliases for games that ship under many names (Assetto Corsa, Valorant).
 
-`GameWindowFocus` matches that key set against running processes and foregrounds the first match, or the one process the user picked in the Options combo box. It returns the matched process name so the log can say which game it grabbed, and `null` when nothing matched. Every discovery source and every scoring rule is a faithful port — if detection needs changing, change it in Adrenalize first and port it back, do not fork the logic.
+`Scan` returns a dictionary of process key to display name. The display name is the install folder name when it carries a space or a capital, title-cased otherwise, with `s_displayNameAliases` covering the handful that still read badly. `TryAdd` keeps the first folder that claims a key, and `s_genericProcessNames` drops keys like `launcher` that would match anything. `GameWindowFocus` matches that key set against running processes and foregrounds the first match, or the one process the user picked in the Options combo box. It returns the matched process name so the log can say which game it grabbed, and `null` when nothing matched. Every discovery source and every scoring rule is a faithful port — if detection needs changing, change it in Adrenalize first and port it back, do not fork the logic. The display-name work, the generic-key filter, and the `handler` and `video` reject tokens were added here first and still need porting back.
 
 The scan takes well under a second and is cached for the process lifetime. Games installed while the app is running are not picked up; that is fine.
 
@@ -170,7 +173,8 @@ Three things in the code-behind are load-bearing:
 
 - **Log autoscroll must be posted.** `LogListBox.ScrollIntoView` called synchronously from `CollectionChanged` throws once the item generator is mid-update. That exception used to propagate out of `LogEntries.Add`, out of `AppendLog`, and silently kill the simulation loop — the log froze, `Finished` never appeared, and the presses stopped. It is now wrapped in `Dispatcher.BeginInvoke(DispatcherPriority.Background, ...)`. Do not inline it again.
 - **The view model is constructed in the code-behind**, not in XAML. `d:DataContext` is design-time only.
-- **`MakeRoomForNotice` moves `MinHeight`, never `Height` alone.** The window is sized so the configuration column exactly fills it with nothing to spare, which leaves the `ui:InfoBar` no room to open into — without this the column scrolls and cuts the Duration card in half. It adds the bar's height to the base `MinHeight` captured at construction and only drags `Height` along while the window is still sitting at its old minimum, so a window the user enlarged is left alone. The earlier version added and subtracted deltas from `Height` and drifted a little further open on every toggle; recomputing an absolute target is what makes it idempotent.
+- **The window has no `Height` in XAML.** It opens with `SizeToContent="Height"` and `LockHeightToContent` turns that off once the tree is up, so the height always matches the configuration column exactly instead of a number hand-tuned to one machine's DPI. The lock is posted at `DispatcherPriority.Background` and re-applies `SizeToContent` before reading `ActualHeight`, because `ui:InfoBar` is still measured open during the very first pass and would bake its height into the window. The log `ListBox` never inflates the measure: it sits in a `*` row inside its card, so an empty log asks for nothing.
+- **`MakeRoomForNotice` moves `MinHeight`, never `Height` alone.** The configuration column fills the window with nothing to spare, which leaves the `ui:InfoBar` no room to open into — without this the column scrolls and cuts the Duration card in half. It adds the bar's height to the base captured by `LockHeightToContent` and only drags `Height` along while the window is still sitting at its old minimum, so a window the user enlarged is left alone. The earlier version added and subtracted deltas from `Height` and drifted a little further open on every toggle; recomputing an absolute target is what makes it idempotent.
 
 The notice `ui:InfoBar` is not exposed to UI Automation, so automated checks cannot read its message. Verify it with a screenshot instead.
 
@@ -228,6 +232,8 @@ Read every file the change touches first — code-behind, services, models, inte
 
 ## Things That Look Wrong But Are Not
 
+- `CanEditConfiguration` is `!IsRunning || IsPaused`, so every card unlocks while paused. Nothing is captured at `Start` to make that work: `RunClockAsync` reads the `TotalDuration` property every tick, `RunScheduleAsync` rebuilds its minute whenever `SimulationsPerMinute` changes, and `BuildKeySteps` runs per simulation. Resume re-validates and refuses to start again if the user emptied the inputs or the duration.
+- `RunScheduleAsync` skips schedule slots that already passed after a rebuild. Without that, raising the speed forty seconds into a minute would fire every earlier slot back to back.
 - `ProgressPercentage` is set to 100 in `Finish` only when the run completed, and left alone when it was stopped, so a stopped bar shows how far it got. Neither branch resets it, because `Start` calls `UpdateTimeLabels` against a fresh stopwatch one line later.
 - `Stop` is bound to `CanExecute = nameof(IsRunning)` while Start/Pause has no `CanExecute`, so the primary button stays live to accept Pause.
 - `catch { }` with an empty body appears several times in `GameScanner`. Disk and registry probes for paths that may not exist are expected to fail, and a failed probe means "not installed".

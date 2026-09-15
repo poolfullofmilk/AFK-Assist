@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -12,12 +13,26 @@ internal static partial class GameScanner
     private static readonly string[] s_executableRejectTokens =
     [
         "helper",
+        "handler",
+        "video",
         "service",
         "crash",
         "report",
         "uninstall",
         "setup",
     ];
+
+    // Games Whose Folder Name Reads Badly
+    private static readonly Dictionary<string, string> s_displayNameAliases = new(
+        StringComparer.OrdinalIgnoreCase
+    )
+    {
+        ["assettocorsa"] = "Assetto Corsa",
+        ["valorant"] = "Valorant",
+        ["rocketleague"] = "Rocket League",
+        ["robloxplayerbeta"] = "Roblox",
+        ["repo"] = "R.E.P.O.",
+    };
 
     // Executable Name Tokens Costing Five Points Each
     private static readonly string[] s_executablePenaltyTokens = ["launcher"];
@@ -44,21 +59,21 @@ internal static partial class GameScanner
 
     private static readonly string[] s_commonGameRoots = [@"C:\Games", @"D:\Games", @"E:\Games"];
 
-    private static readonly Lazy<HashSet<string>> s_cache = new(Scan);
+    private static readonly Lazy<Dictionary<string, string>> s_cache = new(Scan);
 
     static GameScanner()
     {
         Debug.Assert(SelfTestPasses(), "GameScanner SelfTest Failed");
     }
 
-    public static HashSet<string> InstalledGameProcessNames => s_cache.Value;
+    public static IReadOnlyDictionary<string, string> InstalledGames => s_cache.Value;
 
     public static void BeginScan() => Task.Run(() => _ = s_cache.Value);
 
     #region Scan
-    private static HashSet<string> Scan()
+    private static Dictionary<string, string> Scan()
     {
-        HashSet<string> processNames = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, string> installedGames = new(StringComparer.OrdinalIgnoreCase);
 
         var gameRoots = DiscoverSteamGameRoots()
             .Concat(DiscoverEpicGameRoots())
@@ -77,13 +92,34 @@ internal static partial class GameScanner
 
             var processName = NormalizeProcessKey(Path.GetFileNameWithoutExtension(executablePath));
 
-            if (processName.Length >= 2)
+            if (processName.Length >= 2 && processName != "launcher")
             {
-                processNames.Add(processName);
+                // The First Folder Claiming A Key Keeps It
+                installedGames.TryAdd(
+                    processName,
+                    BuildDisplayName(new DirectoryInfo(rootDirectory).Name, processName)
+                );
             }
         }
 
-        return processNames;
+        return installedGames;
+    }
+
+    private static string BuildDisplayName(string folderName, string processName)
+    {
+        if (s_displayNameAliases.TryGetValue(processName, out var alias))
+        {
+            return alias;
+        }
+
+        // A Folder With Spaces Or Capitals Reads Fine
+        var looksWritten = folderName.Any(character =>
+            char.IsWhiteSpace(character) || char.IsUpper(character)
+        );
+
+        return looksWritten
+            ? folderName
+            : CultureInfo.CurrentCulture.TextInfo.ToTitleCase(folderName);
     }
 
     private static string? ResolveMainExecutable(string rootDirectory)
@@ -507,10 +543,21 @@ internal static partial class GameScanner
             return false;
         }
 
+        // A Written Folder Name Beats The Executable Name
+        if (
+            BuildDisplayName("assettocorsa", "assettocorsa") != "Assetto Corsa"
+            || BuildDisplayName("Sons Of The Forest", "sonsoftheforest") != "Sons Of The Forest"
+            || BuildDisplayName("cuphead", "cuphead") != "Cuphead"
+        )
+        {
+            return false;
+        }
+
         // Vetoed Names Must Be Dropped Before Scoring
         string[] rejected =
         [
             @"C:\Games\Rust\RustCrashHandler.exe",
+            @"C:\Games\Rust\CrsVideo.exe",
             @"C:\Games\Rust\Uninstall.exe",
             @"C:\Games\Rust\EasyAntiCheat_Setup.exe",
             @"C:\Games\Rust\SomeService.exe",

@@ -33,6 +33,7 @@ internal partial class MainViewModel : ObservableObject
     private readonly Stopwatch _runStopwatch = new();
     private CancellationTokenSource? _cancellation;
     private string _restoredGame = AutomaticGame;
+    private string? _runLogFilePath;
 
     [ObservableProperty]
     private bool _mouseLeftClickEnabled;
@@ -53,6 +54,17 @@ internal partial class MainViewModel : ObservableObject
     private bool _rightKeyEnabled;
 
     [ObservableProperty]
+    private bool _customKeyEnabled;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CustomKeyLabel))]
+    private int _customKeyVirtualKey;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CustomKeyLabel))]
+    private bool _isCapturingCustomKey;
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(SpeedLabel))]
     private int _simulationsPerMinute = 1;
 
@@ -62,6 +74,9 @@ internal partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     private double? _durationMinutes = 0;
+
+    [ObservableProperty]
+    private double? _startDelaySeconds = 0;
 
     [ObservableProperty]
     private bool _switchToGameEnabled = true;
@@ -85,6 +100,7 @@ internal partial class MainViewModel : ObservableObject
     private bool _isRunning;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanEditConfiguration))]
     [NotifyPropertyChangedFor(nameof(StartButtonLabel))]
     [NotifyPropertyChangedFor(nameof(StartButtonSymbol))]
     private bool _isPaused;
@@ -121,6 +137,11 @@ internal partial class MainViewModel : ObservableObject
 
     public string LeftKeyLabel => AzertyLayoutEnabled ? "Q Key" : "A Key";
 
+    public string CustomKeyLabel =>
+        IsCapturingCustomKey ? "Press A Key"
+        : CustomKeyVirtualKey == 0 ? "Pick"
+        : KeyInterop.KeyFromVirtualKey(CustomKeyVirtualKey).ToString();
+
     public string StartButtonLabel =>
         IsPaused ? "Resume"
         : IsRunning ? "Pause"
@@ -129,12 +150,15 @@ internal partial class MainViewModel : ObservableObject
     public SymbolRegular StartButtonSymbol =>
         IsRunning && !IsPaused ? SymbolRegular.Pause24 : SymbolRegular.Play24;
 
-    public bool CanEditConfiguration => !IsRunning;
+    public bool CanEditConfiguration => !IsRunning || IsPaused;
 
     public bool HasNotice => NoticeMessage.Length > 0;
 
     private string? PreferredGameKey =>
-        SelectedGame == AutomaticGame ? null : GameScanner.NormalizeProcessKey(SelectedGame);
+        GameScanner.InstalledGames.FirstOrDefault(game => game.Value == SelectedGame).Key;
+
+    private TimeSpan TotalDuration =>
+        TimeSpan.FromHours(DurationHours ?? 0) + TimeSpan.FromMinutes(DurationMinutes ?? 0);
 
     public MainViewModel()
     {
@@ -164,15 +188,20 @@ internal partial class MainViewModel : ObservableObject
             return;
         }
 
-        IsPaused = !IsPaused;
-
-        if (IsPaused)
+        if (!IsPaused)
         {
+            IsPaused = true;
             _runStopwatch.Stop();
             AppendLog("Paused");
             return;
         }
 
+        if (!TryValidateConfiguration())
+        {
+            return;
+        }
+
+        IsPaused = false;
         _runStopwatch.Start();
         AppendLog("Resumed");
 
@@ -195,18 +224,56 @@ internal partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private void CaptureCustomKey() => IsCapturingCustomKey = true;
+
+    public void ApplyCapturedKey(int virtualKey)
+    {
+        IsCapturingCustomKey = false;
+
+        if (virtualKey == 0)
+        {
+            return;
+        }
+
+        CustomKeyVirtualKey = virtualKey;
+        CustomKeyEnabled = true;
+    }
+
+    [RelayCommand]
+    private async Task ClearLogFilesAsync()
+    {
+        var confirmed = await ShowDialogAsync(
+            "Clear Log Files",
+            $"This Deletes Every Saved Run From\n\n{RunLog.DirectoryPath}",
+            "Delete",
+            "Cancel"
+        );
+
+        if (!confirmed)
+        {
+            return;
+        }
+
+        var deletedCount = RunLog.DeleteAll();
+
+        AppendLog($"Deleted {deletedCount} Log {(deletedCount == 1 ? "File" : "Files")}");
+    }
+
+    [RelayCommand]
     private static Task<bool> ShowHowToUseAsync() =>
         ShowDialogAsync(
             "How To Use",
             """
             1. Start The Game And Bring It To The Foreground
-            2. Select The Mouse And Keyboard Inputs
-            3. Keep Randomize Simulation Enabled
-            4. Keep Randomize Intervals Enabled
-            5. Choose The Speed And Duration
-            6. Press Start And Leave The Computer Alone
-            7. Use Pause And Resume Anytime
-            8. Press Stop To End The Run
+            2. Tick The Mouse Buttons And Keys To Simulate
+            3. Tick Custom And Press Any Extra Key To Record It
+            4. Choose The Speed And The Duration
+            5. Set A Start Delay If You Need Time To Switch Windows
+            6. Leave Both Randomize Options On
+            7. Leave Switch To Game On Or Pick The Game Yourself
+            8. Press Start And Leave The Computer Alone
+            9. Pause To Change Anything Mid Run Then Resume
+            10. Every Run Is Saved Under Documents AFK Assist Logs
             """
         );
 
@@ -233,12 +300,15 @@ internal partial class MainViewModel : ObservableObject
         var openRelease = await ShowDialogAsync(
             "Update Available",
             $"Current: v{UpdateChecker.CurrentVersion}\nLatest: v{result.Latest}",
-            "Open Release Page"
+            "Open Release Page",
+            "Later"
         );
 
         if (openRelease)
         {
-            UpdateChecker.OpenReleasePage(result.ReleaseUrl);
+            Process.Start(
+                new ProcessStartInfo { FileName = result.ReleaseUrl, UseShellExecute = true }
+            );
         }
     }
     #endregion
@@ -248,6 +318,7 @@ internal partial class MainViewModel : ObservableObject
     {
         LogEntries.Clear();
         NoticeMessage = string.Empty;
+        _runLogFilePath = RunLog.NewFilePath();
         AppendLog("Started", LogKind.Success);
 
         IsRunning = true;
@@ -257,13 +328,10 @@ internal partial class MainViewModel : ObservableObject
         _cancellation?.Dispose();
         _cancellation = new CancellationTokenSource();
 
-        var totalDuration =
-            TimeSpan.FromHours(DurationHours ?? 0) + TimeSpan.FromMinutes(DurationMinutes ?? 0);
-
-        UpdateTimeLabels(totalDuration);
+        UpdateTimeLabels();
 
         // Every Await Returns To The Dispatcher
-        _ = RunAsync(totalDuration, _cancellation.Token);
+        _ = RunAsync(_cancellation.Token);
     }
 
     private void Finish(string reason, LogKind kind = LogKind.Normal)
@@ -287,6 +355,7 @@ internal partial class MainViewModel : ObservableObject
         }
 
         AppendLog(reason, kind);
+        _runLogFilePath = null;
     }
 
     private bool TryValidateConfiguration()
@@ -297,13 +366,14 @@ internal partial class MainViewModel : ObservableObject
             || ForwardKeyEnabled
             || LeftKeyEnabled
             || BackwardKeyEnabled
-            || RightKeyEnabled;
+            || RightKeyEnabled
+            || (CustomKeyEnabled && CustomKeyVirtualKey != 0);
 
         if (!hasInput)
         {
             ShowNotice("Select At Least One Input", InfoBarSeverity.Error);
         }
-        else if ((DurationHours ?? 0) + (DurationMinutes ?? 0) <= 0)
+        else if (TotalDuration <= TimeSpan.Zero)
         {
             ShowNotice("Set A Duration", InfoBarSeverity.Error);
         }
@@ -325,9 +395,12 @@ internal partial class MainViewModel : ObservableObject
             LeftKeyEnabled,
             BackwardKeyEnabled,
             RightKeyEnabled,
+            CustomKeyEnabled,
+            CustomKeyVirtualKey,
             SimulationsPerMinute,
             DurationHours ?? 0,
             DurationMinutes ?? 0,
+            StartDelaySeconds ?? 0,
             SwitchToGameEnabled,
             RandomizeSimulationEnabled,
             RandomizeIntervalsEnabled,
@@ -349,9 +422,12 @@ internal partial class MainViewModel : ObservableObject
         LeftKeyEnabled = settings.LeftKey;
         BackwardKeyEnabled = settings.BackwardKey;
         RightKeyEnabled = settings.RightKey;
+        CustomKeyVirtualKey = settings.CustomKeyVirtualKey;
+        CustomKeyEnabled = settings.CustomKey && settings.CustomKeyVirtualKey != 0;
         SimulationsPerMinute = Math.Clamp(settings.SimulationsPerMinute, 1, 10);
         DurationHours = Math.Clamp(settings.DurationHours, 0, 8);
         DurationMinutes = Math.Clamp(settings.DurationMinutes, 0, 59);
+        StartDelaySeconds = Math.Clamp(settings.StartDelaySeconds, 0, 300);
         SwitchToGameEnabled = settings.SwitchToGame;
         RandomizeSimulationEnabled = settings.RandomizeSimulation;
         RandomizeIntervalsEnabled = settings.RandomizeIntervals;
@@ -364,14 +440,13 @@ internal partial class MainViewModel : ObservableObject
     {
         var games = await Task.Run(() =>
             GameScanner
-                .InstalledGameProcessNames.Select(CultureInfo.CurrentCulture.TextInfo.ToTitleCase)
-                .Order(StringComparer.CurrentCultureIgnoreCase)
+                .InstalledGames.OrderBy(game => game.Value, StringComparer.CurrentCultureIgnoreCase)
                 .ToArray()
         );
 
         foreach (var game in games)
         {
-            AvailableGames.Add(game);
+            AvailableGames.Add(game.Value);
         }
 
         if (AvailableGames.Contains(_restoredGame))
@@ -382,17 +457,19 @@ internal partial class MainViewModel : ObservableObject
     #endregion
 
     #region Simulation
-    private async Task RunAsync(TimeSpan totalDuration, CancellationToken cancellationToken)
+    private async Task RunAsync(CancellationToken cancellationToken)
     {
         try
         {
+            await WaitStartDelayAsync(cancellationToken);
+
             if (SwitchToGameEnabled)
             {
                 await FocusGameAsync(cancellationToken);
             }
 
             await Task.WhenAll(
-                RunClockAsync(totalDuration, cancellationToken),
+                RunClockAsync(cancellationToken),
                 RunScheduleAsync(cancellationToken)
             );
         }
@@ -412,15 +489,31 @@ internal partial class MainViewModel : ObservableObject
         }
     }
 
-    private async Task RunClockAsync(TimeSpan totalDuration, CancellationToken cancellationToken)
+    private async Task WaitStartDelayAsync(CancellationToken cancellationToken)
+    {
+        var delaySeconds = (int)(StartDelaySeconds ?? 0);
+
+        if (delaySeconds <= 0)
+        {
+            return;
+        }
+
+        AppendLog($"Waiting {delaySeconds} Seconds");
+        await Task.Delay(TimeSpan.FromSeconds(delaySeconds), cancellationToken);
+
+        // The Delay Sits Outside The Run
+        _runStopwatch.Restart();
+    }
+
+    private async Task RunClockAsync(CancellationToken cancellationToken)
     {
         using PeriodicTimer timer = new(TimeSpan.FromMilliseconds(PollIntervalMilliseconds));
 
         while (await timer.WaitForNextTickAsync(cancellationToken))
         {
-            UpdateTimeLabels(totalDuration);
+            UpdateTimeLabels();
 
-            if (!IsPaused && _runStopwatch.Elapsed >= totalDuration)
+            if (!IsPaused && _runStopwatch.Elapsed >= TotalDuration)
             {
                 Finish("Finished", LogKind.Success);
                 return;
@@ -433,6 +526,7 @@ internal partial class MainViewModel : ObservableObject
         double[] schedule = [];
         var scheduleIndex = 0;
         var scheduledMinute = -1;
+        var scheduledSpeed = 0;
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -440,14 +534,24 @@ internal partial class MainViewModel : ObservableObject
             var minute = (int)(elapsedSeconds / 60.0);
             var secondWithinMinute = elapsedSeconds - (minute * 60.0);
 
-            if (minute != scheduledMinute)
+            // A Speed Change While Paused Takes Effect At Once
+            if (minute != scheduledMinute || SimulationsPerMinute != scheduledSpeed)
             {
                 scheduledMinute = minute;
+                scheduledSpeed = SimulationsPerMinute;
                 scheduleIndex = 0;
                 schedule = SimulationSchedule.CreateForOneMinute(
-                    SimulationsPerMinute,
+                    scheduledSpeed,
                     RandomizeIntervalsEnabled
                 );
+
+                // Slots Already Past Must Not Fire In A Burst
+                while (
+                    scheduleIndex < schedule.Length && schedule[scheduleIndex] < secondWithinMinute
+                )
+                {
+                    scheduleIndex++;
+                }
             }
 
             var isDue =
@@ -526,6 +630,16 @@ internal partial class MainViewModel : ObservableObject
             steps.Add((InputSimulator.Right(), "Pressed D Key"));
         }
 
+        if (CustomKeyEnabled && CustomKeyVirtualKey != 0)
+        {
+            steps.Add(
+                (
+                    InputSimulator.Custom((ushort)CustomKeyVirtualKey),
+                    $"Pressed {CustomKeyLabel} Key"
+                )
+            );
+        }
+
         return [.. steps];
     }
 
@@ -558,9 +672,10 @@ internal partial class MainViewModel : ObservableObject
     #endregion
 
     #region Presentation
-    private void UpdateTimeLabels(TimeSpan totalDuration)
+    private void UpdateTimeLabels()
     {
         var elapsed = _runStopwatch.Elapsed;
+        var totalDuration = TotalDuration;
 
         ElapsedLabel = FormatDuration(elapsed);
         RemainingLabel = FormatDuration(totalDuration - elapsed);
@@ -578,11 +693,18 @@ internal partial class MainViewModel : ObservableObject
 
     private void AppendLog(string message, LogKind kind = LogKind.Normal)
     {
-        LogEntries.Add(new LogEntry($"{DateTime.Now:HH:mm:ss.fff}", message, kind));
+        var time = $"{DateTime.Now:HH:mm:ss.fff}";
+
+        LogEntries.Add(new LogEntry(time, message, kind));
 
         if (LogEntries.Count > MaximumLogEntries)
         {
             LogEntries.RemoveAt(0);
+        }
+
+        if (_runLogFilePath is not null)
+        {
+            RunLog.AppendLine(_runLogFilePath, $"{time}   {message}");
         }
     }
 
@@ -595,7 +717,8 @@ internal partial class MainViewModel : ObservableObject
     private static async Task<bool> ShowDialogAsync(
         string title,
         string content,
-        string primaryButtonText = ""
+        string primaryButtonText = "",
+        string closeButtonText = "Close"
     )
     {
         Wpf.Ui.Controls.MessageBox dialog = new()
@@ -603,7 +726,7 @@ internal partial class MainViewModel : ObservableObject
             Title = title,
             Content = content,
             PrimaryButtonText = primaryButtonText,
-            CloseButtonText = primaryButtonText.Length == 0 ? "Close" : "Later",
+            CloseButtonText = closeButtonText,
         };
 
         return await dialog.ShowDialogAsync() == Wpf.Ui.Controls.MessageBoxResult.Primary;

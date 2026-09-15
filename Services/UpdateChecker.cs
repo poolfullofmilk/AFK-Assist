@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net.Http;
 using System.Reflection;
 
@@ -49,9 +48,6 @@ internal static class UpdateChecker
             return new UpdateCheckResult(false, CurrentVersion, string.Empty);
         }
     }
-
-    public static void OpenReleasePage(string url) =>
-        Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
 
     private static Version ParseVersion(string? text)
     {
