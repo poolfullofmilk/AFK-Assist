@@ -7,19 +7,15 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <ApplicationIcon>Icon.ico</ApplicationIcon>
-    </PropertyGroup>
-    <PropertyGroup>
         <Description>Keeps A Game Active While You Are Away By Simulating Keyboard And Mouse Input</Description>
         <Copyright>Copyright 2026</Copyright>
-        <Version>1.1.0</Version>
-    </PropertyGroup>
-    <PropertyGroup>
+        <Version>1.1</Version>
         <RuntimeIdentifier>win-x64</RuntimeIdentifier>
         <SelfContained>true</SelfContained>
         <PublishSingleFile>true</PublishSingleFile>
         <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
         <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-        <DebugType>none</DebugType>
+        <DebugType>embedded</DebugType>
     </PropertyGroup>
     <ItemGroup>
         <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />

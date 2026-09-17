@@ -52,7 +52,9 @@ Do not reach for `PublishTrimmed` or Native AOT. WPF is not trim-safe and is uns
 
 `<AssemblyName>`, `<RootNamespace>`, `<Product>` and `<Company>` are not in the project because the SDK defaults already produce `AFK Assist` and `AFK_Assist`.
 
-`<Version>` is the release version, currently `1.1.0`. `UpdateChecker.CurrentVersion` reads it back through `Assembly.GetName().Version`, which pads it to `1.1.0.0`; a `v1.1.0` tag still compares equal because an unset revision sorts below zero. Bump `<Version>` together with the release tag.
+`<Version>` is the release version with two parts, currently `1.1`, tagged `v1.1`. `UpdateChecker.CurrentVersion` reads it back through `Assembly.GetName().Version`, which pads it to `1.1.0.0`; the `v1.1` tag parses as `1.1`, which sorts below `1.1.0.0` because unset parts count as lower, so a release never flags itself. Dialogs print two parts. A tag without a minor part, like the old `v1`, does not parse at all. Bump `<Version>` together with the release tag.
+
+`DebugType` is `embedded`, so symbols ride inside the single file and Debug builds keep them.
 
 `Icon.ico` is both the `ApplicationIcon` and a WPF `Resource` shown in the title bar. Its first frame is 32 px because `ui:ImageIcon` decodes the first frame only.
 
@@ -78,14 +80,13 @@ Services/InputSimulator.cs            SendInput keys, clicks and mouse movement
 Services/UserActivity.cs              Low-level hooks that notice real hands
 Services/GameWindowFocus.cs           Foregrounds a running game, checks the foreground
 Services/GameScanner.cs               Finds installed games on disk
-Services/SimulationSchedule.cs        When inside a minute each action fires
 Services/UpdateChecker.cs             GitHub latest-release comparison
 Services/UserSettings.cs              Settings persisted to %AppData%
 Services/RunLog.cs                    One text file per run under Documents
 Icon.ico, Screenshot-*.png            App icon, README screenshots
 ```
 
-No dependency injection, navigation, messenger or repository layer. One window, one view model, eight services. Keep it that way.
+No dependency injection, navigation, messenger or repository layer. One window, one view model, seven services. Keep it that way.
 
 ## Threading Model
 
@@ -128,7 +129,9 @@ Setting only one breaks half the games. Do not go back to `keybd_event`.
 
 **Movement** is one to three outward relative slides of 250–800 px, kept within 30° of horizontal like looking around, then one slide back near the start. Each slide is 25–60 steps of smoothstep easing along a slight bow, with a pixel of tremor on every step except the last, random step timing and pauses. It cancels on Stop; nothing can get stuck.
 
-`RandomInRange` is the one inclusive random helper for every `(Minimum, Maximum)` tuple in the app. It averages two draws, so values cluster in the middle of the range the way human timing does instead of spreading flat to hard edges. `SimulationSchedule` jitters the same way.
+`RandomInRange` is the one inclusive random helper for every `(Minimum, Maximum)` tuple in the app. It averages two draws, so values cluster in the middle of the range the way human timing does instead of spreading flat to hard edges. `CreateMinuteSchedule` jitters the same way.
+
+Key presses and clicks share `HoldAsync`, which sends the press, waits and sends the release.
 
 ## Detection
 
@@ -158,7 +161,7 @@ The hooks are never uninstalled. Windows removes them when the process exits.
 
 ## Scheduling
 
-`SimulationSchedule.CreateForOneMinute` gives each action a slot and places it at the slot start plus up to ±35% of a slot width, clamped inside the minute. The count per minute is exact. Slots never overlap, because the latest point of one slot sits 30% of a slot before the earliest point of the next, so the array needs no sort. With Randomize Intervals off the jitter is zero.
+`CreateMinuteSchedule` on the view model gives each action a slot and places it at the slot start plus up to ±35% of a slot width, clamped inside the minute. The count per minute is exact. Slots never overlap, because the latest point of one slot sits 30% of a slot before the earliest point of the next, so the array needs no sort. With Randomize Intervals off the jitter is zero.
 
 `RunScheduleAsync` polls every 250 ms so Pause and Stop stay responsive, and rebuilds the schedule at each minute boundary **and** whenever the speed changes. Slots missed while a long simulation ran, or while a rebuild landed mid-minute, collapse into one action instead of firing back to back.
 
@@ -174,6 +177,8 @@ Sources: Steam (every library in `libraryfolders.vdf`, which lists the primary o
 
 Folders are enumerated behind a `Directory.Exists` guard with `EnumerationOptions`, whose `IgnoreInaccessible` skips folders that deny access. Sources may overlap; `TryAdd` keeps the first folder claiming a key, so no source dedupes on its own.
 
+Steam, Epic, Riot and Rockstar are one method each that fills a list inside a single `try`, so an unreadable file or a missing Steam install ends that source only. Roblox is one query.
+
 Inside each root the main executable is chosen by score: `win64` and `shipping` earn 3, `launcher` costs 5, an exact folder-name match earns 4 and a partial one 2. Names containing `helper`, `handler`, `video`, `service`, `crash`, `report`, `uninstall` or `setup` are vetoed before scoring. The name is computed once per executable and passed down.
 
 Executable names become process keys by lowercasing and stripping `_` and `-`, with aliases for Assetto Corsa and Valorant. `Scan` returns key → display name. The display name is the install folder when it has a space or a capital, title-cased otherwise, with `s_displayNameAliases` for the few that still read badly. The key `launcher` is dropped because it would match anything.
@@ -186,13 +191,14 @@ Added here and **still to port back** to Adrenalize:
 - The removed Riot hard-coded roots, source-level dedupe, primary Steam library yield and redundant root guard
 - Executable names passed to scoring instead of paths, the inline `launcher` penalty, and regexes without `IgnoreCase`
 - `acs` and `acsx86` matched exactly, so `ACShadows` and `ACSyndicate` no longer become Assetto Corsa
+- Steam, Epic and Rockstar flattened to one method with one `try`, Roblox as one query, and the inlined score penalty
 - The matching self-test changes
 
 The scan runs once per process, well under a second. Games installed while the app runs are not picked up.
 
 ## Update Checking
 
-`UpdateChecker.CheckAsync` sends one non-redirecting `GET` to the GitHub `releases/latest` URL, reads the tag from the `Location` header and returns `(Latest, ReleaseUrl)` only when that tag is newer, `null` otherwise. No token, no JSON. Every exception returns `null`; a failed check must never interrupt a run. The startup check is silent when up to date; the title bar button reports either way.
+`UpdateChecker.CheckAsync` sends one non-redirecting `GET` to the GitHub `releases/latest` URL, reads the tag from the `Location` header and returns `(Latest, ReleaseUrl)` only when that tag is newer, `null` otherwise. No token, no JSON, no User-Agent; github.com answers the redirect without one. Every exception returns `null`; a failed check must never interrupt a run. The startup check is silent when up to date; the title bar button reports either way.
 
 ## Run Logs And Settings
 
@@ -202,7 +208,7 @@ The scan runs once per process, well under a second. Games installed while the a
 
 ## UI Conventions
 
-The window is `ui:FluentWindow` with `ExtendsContentIntoTitleBar` and Mica. `ApplySystemTheme(updateAccent: true)` and `SystemThemeWatcher.Watch(this, Mica, updateAccents: true)` follow the Windows theme and accent live. The accent drives checked boxes, toggles, the primary button, the slider, the progress bar and the active preset chip; on a machine with a grey Windows accent they are all grey, which is correct.
+The window is `ui:FluentWindow` with `ExtendsContentIntoTitleBar` and Mica. `SystemThemeWatcher.Watch(this)` applies the Windows theme and accent on the first call and follows both live; Mica and accent updates are its defaults. `WindowBackdropType="Mica"` stays in XAML because the watcher only reapplies the backdrop on a theme change. `Background` and `Foreground` come from the FluentWindow style. The accent drives checked boxes, toggles, the primary button, the slider, the progress bar and the active preset chip; on a machine with a grey Windows accent they are all grey, which is correct.
 
 Control ladder, first rung that works wins: a WPF-UI control (`ui:Card`, `ui:Button`, `ui:TextBlock`, `ui:ToggleSwitch`, `ui:NumberBox`, `ui:InfoBar`, `ui:ImageIcon`), then a plain WPF control WPF-UI restyles (`CheckBox`, `Slider`, `ComboBox`, `ProgressBar`, `ScrollViewer`, `ItemsControl`), then a `Style` or inline property. The root `Grid.Resources` holds exactly two styles, both `BasedOn` the WPF-UI defaults: the keyed `ChipButton` for every small preset or header button, and an implicit `ui:NumberBox` style. No other resource entries. The one converter is reached through `{x:Static}`, not a resource.
 
@@ -211,7 +217,7 @@ XAML: `<!-- Name -->` comments above a group, naming its main element only. One 
 - **Layout.** Mouse and Keyboard checkboxes sit in the Input card, every on/off behaviour is a toggle in the Options card, and each card holds values. The Input card and the Options card both have five rows so their shared row has no empty band.
 - **Run mode** is a `ui:ToggleSwitch` between two labels, `Run For` and `Run Until`, at the bottom of the Duration card.
 - **Limits** are `public const double` on `MainViewModel`, bound with `{x:Static}`. Only the Hours maximum is a binding, because it switches between 8 and 23 with the run mode. `RestoreSettings` clamps against the same constants.
-- **Presets** bind `Appearance` to `DurationTotalMinutes` or `StartDelayTotalSeconds` through `PresetAppearanceConverter`, which compares the value with the chip's `ConverterParameter`. `DurationTotalMinutes` is `-1` in Run Until mode so no chip lights up there.
+- **Presets** are `Preset` value and label pairs in the static `StartDelayPresets` and `DurationPresets` arrays, each shown by an `ItemsControl` of chips. A chip's `Appearance` is a `MultiBinding` of its value and `StartDelayTotalSeconds` or `DurationTotalMinutes` through `PresetAppearanceConverter`, and its command reaches the view model through the `ItemsControl`'s `DataContext`. `DurationTotalMinutes` is `-1` in Run Until mode so no chip lights up there.
 - **Tooltips** only on the icon-only update button, where it is the label. Every unlabelled input carries `AutomationProperties.Name`.
 - **UI text** is short Title Case with no ending punctuation. Units are one letter hugging the number (`15m`, `3m 12s`).
 - **Log messages** lead with a past-tense verb: `Pressed W Key`, `Enabled Switch To Game`, `Failed To Focus Game`, `Skipped Game Not Focused`. Errors log the exception type, not its message, which is not Title Case and often ends in a full stop.
@@ -294,6 +300,8 @@ Read every file the change touches first: code-behind, services, models, interfa
 ## Things That Look Wrong But Are Not
 
 - `Stop` has `CanExecute = nameof(IsRunning)` while Start/Pause has none, so the primary button stays live as Pause and Resume.
+- `CheckForUpdatesAsync` takes a `bool?`. The title bar button passes nothing and the constructor passes `true`, because a `RelayCommand` cannot turn a XAML string into a `bool`.
+- `DiscoverSteamGameRoots` lets `First(Directory.Exists)` throw when Steam is missing; the source's own `try` turns that into no Steam games.
 - `OnRunUntilEnabledChanged` raises `HoursMaximum` by hand before moving the boxes. The generated notification fires only after the partial method, and the Hours box would otherwise clamp a clock hour of 17 to the old maximum of 8.
 - `catch` blocks that swallow everything in `GameScanner`, `RunLog` and `UserSettings` are deliberate. A missing path means "not installed", and a log or settings file must never take the app down.
 - The WASD checkboxes have no fixed text. Their labels are read from the active keyboard layout, so an Azerty user sees Z and Q.

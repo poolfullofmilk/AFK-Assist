@@ -83,23 +83,19 @@ internal static partial class InputSimulator
         return range.Minimum + (int)Math.Round(spread * (range.Maximum - range.Minimum));
     }
 
-    public static async Task PressKeyAsync(SimulatedKey key, int holdMilliseconds)
-    {
-        SendKey(key, isKeyUp: false);
+    public static Task PressKeyAsync(SimulatedKey key, int holdMilliseconds) =>
+        HoldAsync(isRelease => SendKey(key, isRelease), holdMilliseconds);
 
-        // Never Cancelled So The Key Comes Back Up
-        await Task.Delay(holdMilliseconds);
-        SendKey(key, isKeyUp: true);
-    }
-
-    public static async Task ClickMouseAsync(bool isRightButton, int holdMilliseconds)
-    {
-        SendMouse(isRightButton ? MouseEventRightDown : MouseEventLeftDown);
-
-        // Never Cancelled So The Button Comes Back Up
-        await Task.Delay(holdMilliseconds);
-        SendMouse(isRightButton ? MouseEventRightUp : MouseEventLeftUp);
-    }
+    public static Task ClickMouseAsync(bool isRightButton, int holdMilliseconds) =>
+        HoldAsync(
+            isRelease =>
+                SendMouse(
+                    isRightButton ? (isRelease ? MouseEventRightUp : MouseEventRightDown)
+                    : isRelease ? MouseEventLeftUp
+                    : MouseEventLeftDown
+                ),
+            holdMilliseconds
+        );
 
     public static async Task MoveMouseNaturallyAsync(CancellationToken cancellationToken)
     {
@@ -129,6 +125,15 @@ internal static partial class InputSimulator
             -travelledY + RandomInRange(s_returnOffsetPixels),
             cancellationToken
         );
+    }
+
+    private static async Task HoldAsync(Action<bool> send, int holdMilliseconds)
+    {
+        send(false);
+
+        // Never Cancelled So Nothing Stays Held Down
+        await Task.Delay(holdMilliseconds);
+        send(true);
     }
 
     private static async Task SlideMouseAsync(
@@ -167,7 +172,7 @@ internal static partial class InputSimulator
         }
     }
 
-    private static void SendKey(SimulatedKey key, bool isKeyUp)
+    private static void SendKey(SimulatedKey key, bool isRelease)
     {
         // Both Fields Filled For Virtual Key And Raw Input
         Input input = new()
@@ -180,7 +185,8 @@ internal static partial class InputSimulator
                     VirtualKey = key.VirtualKey,
                     ScanCode = key.ScanCode,
                     Flags =
-                        (isKeyUp ? KeyEventKeyUp : 0) | (key.IsExtended ? KeyEventExtendedKey : 0),
+                        (isRelease ? KeyEventKeyUp : 0)
+                        | (key.IsExtended ? KeyEventExtendedKey : 0),
                 },
             },
         };

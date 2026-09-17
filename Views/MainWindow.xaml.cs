@@ -30,8 +30,7 @@ public partial class MainWindow : FluentWindow
         NoticeBar.IsVisibleChanged += (_, _) => MakeRoomForNotice();
         CustomKeyButton.LostKeyboardFocus += (_, _) => _viewModel.ApplyCapturedKey(0);
 
-        ApplicationThemeManager.ApplySystemTheme(updateAccent: true);
-        SystemThemeWatcher.Watch(this, WindowBackdropType.Mica, updateAccents: true);
+        SystemThemeWatcher.Watch(this);
     }
 
     private void LockHeightToContent()

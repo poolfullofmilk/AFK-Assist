@@ -20,16 +20,20 @@ internal enum LogKind
 
 internal readonly record struct LogEntry(string Time, string Message, LogKind Kind);
 
+internal readonly record struct Preset(int Value, string Label);
+
 internal partial class MainViewModel : ObservableObject
 {
     // Limits Shared With The Window
     public const double MinimumSpeed = 1;
     public const double MaximumSpeed = 10;
     public const double MaximumDurationHours = 8;
-    public const double MaximumClockHour = 23;
     public const double MaximumMinutes = 59;
     public const double MaximumSeconds = 59;
 
+    private const double MaximumClockHour = 23;
+    private const double MaximumJitterFraction = 0.35;
+    private const double EdgeMarginSeconds = 0.05;
     private const int PollIntervalMilliseconds = 250;
     private const int FocusSettleDelayMilliseconds = 800;
     private const int MaximumLogEntries = 500;
@@ -163,6 +167,12 @@ internal partial class MainViewModel : ObservableObject
     public ObservableCollection<KeyValuePair<string, string>> AvailableGames { get; } =
         [new(string.Empty, "Automatic")];
 
+    public static Preset[] StartDelayPresets { get; } =
+        [new(5, "5s"), new(10, "10s"), new(30, "30s"), new(60, "1m")];
+
+    public static Preset[] DurationPresets { get; } =
+        [new(15, "15m"), new(30, "30m"), new(60, "1h"), new(480, "8h")];
+
     public string SpeedLabel =>
         SimulationsPerMinute == 1
             ? "1 Simulation / Minute"
@@ -236,7 +246,7 @@ internal partial class MainViewModel : ObservableObject
         LogEntries.Clear();
 
         _ = LoadAvailableGamesAsync();
-        _ = CheckForUpdatesAsync(reportWhenUpToDate: false);
+        _ = CheckForUpdatesAsync(isStartupCheck: true);
     }
 
     #region Commands
@@ -267,21 +277,19 @@ internal partial class MainViewModel : ObservableObject
     private void Stop() => Finish("Stopped");
 
     [RelayCommand]
-    private void ApplyStartDelayPreset(string totalSeconds) =>
-        (StartDelayMinutes, StartDelaySeconds) = Math.DivRem(int.Parse(totalSeconds), 60);
+    private void ApplyStartDelayPreset(int totalSeconds) =>
+        (StartDelayMinutes, StartDelaySeconds) = Math.DivRem(totalSeconds, 60);
 
     [RelayCommand]
-    private void ApplyDurationPreset(string totalMinutes)
+    private void ApplyDurationPreset(int totalMinutes)
     {
-        var minutes = int.Parse(totalMinutes);
-
         if (RunUntilEnabled)
         {
-            ShowClockTime(DateTime.Now.AddMinutes(minutes));
+            ShowClockTime(DateTime.Now.AddMinutes(totalMinutes));
             return;
         }
 
-        (DurationHours, DurationMinutes) = Math.DivRem(minutes, 60);
+        (DurationHours, DurationMinutes) = Math.DivRem(totalMinutes, 60);
     }
 
     [RelayCommand]
@@ -324,15 +332,14 @@ internal partial class MainViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private static Task CheckForUpdatesAsync() => CheckForUpdatesAsync(reportWhenUpToDate: true);
-
-    private static async Task CheckForUpdatesAsync(bool reportWhenUpToDate)
+    private static async Task CheckForUpdatesAsync(bool? isStartupCheck)
     {
-        var currentVersion = UpdateChecker.CurrentVersion.ToString(3);
+        var currentVersion = UpdateChecker.CurrentVersion.ToString(2);
 
         if (await UpdateChecker.CheckAsync() is not { } update)
         {
-            if (reportWhenUpToDate)
+            // The Title Bar Button Passes No Parameter
+            if (isStartupCheck is not true)
             {
                 await ShowDialogAsync(
                     "No Update Available",
@@ -659,10 +666,7 @@ internal partial class MainViewModel : ObservableObject
                 scheduledMinute = minute;
                 scheduledSpeed = SimulationsPerMinute;
                 scheduleIndex = 0;
-                schedule = SimulationSchedule.CreateForOneMinute(
-                    scheduledSpeed,
-                    RandomizeIntervalsEnabled
-                );
+                schedule = CreateMinuteSchedule(scheduledSpeed);
             }
 
             var isDue =
@@ -687,6 +691,30 @@ internal partial class MainViewModel : ObservableObject
             scheduleIndex++;
             await ExecuteSimulationAsync(cancellationToken);
         }
+    }
+
+    private double[] CreateMinuteSchedule(int simulationsPerMinute)
+    {
+        var spacingSeconds = 60.0 / simulationsPerMinute;
+        var dueSeconds = new double[simulationsPerMinute];
+
+        for (var index = 0; index < simulationsPerMinute; index++)
+        {
+            // Jitter Stays Inside The Slot So The Order Never Changes
+            var offsetSeconds = RandomizeIntervalsEnabled
+                ? (Random.Shared.NextDouble() + Random.Shared.NextDouble() - 1.0)
+                    * spacingSeconds
+                    * MaximumJitterFraction
+                : 0.0;
+
+            dueSeconds[index] = Math.Clamp(
+                (index * spacingSeconds) + offsetSeconds,
+                EdgeMarginSeconds,
+                60.0 - EdgeMarginSeconds
+            );
+        }
+
+        return dueSeconds;
     }
 
     private async Task ExecuteSimulationAsync(CancellationToken cancellationToken)

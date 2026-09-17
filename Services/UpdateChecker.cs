@@ -12,7 +12,6 @@ internal static class UpdateChecker
         new HttpClientHandler { AllowAutoRedirect = false }
     )
     {
-        DefaultRequestHeaders = { UserAgent = { new("AFK-Assist", "1.0") } },
         Timeout = TimeSpan.FromSeconds(10),
     };
 

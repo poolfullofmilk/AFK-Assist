@@ -10,9 +10,7 @@
                  mc:Ignorable="d"
                  Title="AFK Assist"
                  Width="840"
-                 Background="{DynamicResource ApplicationBackgroundBrush}"
                  ExtendsContentIntoTitleBar="True"
-                 Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                  ResizeMode="CanMinimize"
                  SizeToContent="Height"
                  Topmost="True"
@@ -182,29 +180,30 @@
                                 <ui:TextBlock VerticalAlignment="Center"
                                               FontTypography="BodyStrong"
                                               Text="Start Delay" />
-                                <StackPanel HorizontalAlignment="Right"
-                                            Orientation="Horizontal">
-                                    <ui:Button Appearance="{Binding StartDelayTotalSeconds, Converter={x:Static views:PresetAppearanceConverter.Instance}, ConverterParameter=5}"
-                                               Command="{Binding ApplyStartDelayPresetCommand}"
-                                               CommandParameter="5"
-                                               Content="5s"
-                                               Style="{StaticResource ChipButton}" />
-                                    <ui:Button Appearance="{Binding StartDelayTotalSeconds, Converter={x:Static views:PresetAppearanceConverter.Instance}, ConverterParameter=10}"
-                                               Command="{Binding ApplyStartDelayPresetCommand}"
-                                               CommandParameter="10"
-                                               Content="10s"
-                                               Style="{StaticResource ChipButton}" />
-                                    <ui:Button Appearance="{Binding StartDelayTotalSeconds, Converter={x:Static views:PresetAppearanceConverter.Instance}, ConverterParameter=30}"
-                                               Command="{Binding ApplyStartDelayPresetCommand}"
-                                               CommandParameter="30"
-                                               Content="30s"
-                                               Style="{StaticResource ChipButton}" />
-                                    <ui:Button Appearance="{Binding StartDelayTotalSeconds, Converter={x:Static views:PresetAppearanceConverter.Instance}, ConverterParameter=60}"
-                                               Command="{Binding ApplyStartDelayPresetCommand}"
-                                               CommandParameter="60"
-                                               Content="1m"
-                                               Style="{StaticResource ChipButton}" />
-                                </StackPanel>
+                                <ItemsControl HorizontalAlignment="Right"
+                                              ItemsSource="{x:Static viewmodels:MainViewModel.StartDelayPresets}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <ui:Button Command="{Binding DataContext.ApplyStartDelayPresetCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                       CommandParameter="{Binding Value}"
+                                                       Content="{Binding Label}"
+                                                       Style="{StaticResource ChipButton}">
+                                                <ui:Button.Appearance>
+                                                    <MultiBinding Converter="{x:Static views:PresetAppearanceConverter.Instance}">
+                                                        <Binding Path="Value" />
+                                                        <Binding Path="DataContext.StartDelayTotalSeconds"
+                                                                 RelativeSource="{RelativeSource AncestorType=ItemsControl}" />
+                                                    </MultiBinding>
+                                                </ui:Button.Appearance>
+                                            </ui:Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </Grid>
                             <Grid Margin="0,10,0,0">
                                 <Grid.ColumnDefinitions>
@@ -241,29 +240,30 @@
                                 <ui:TextBlock VerticalAlignment="Center"
                                               FontTypography="BodyStrong"
                                               Text="Duration" />
-                                <StackPanel HorizontalAlignment="Right"
-                                            Orientation="Horizontal">
-                                    <ui:Button Appearance="{Binding DurationTotalMinutes, Converter={x:Static views:PresetAppearanceConverter.Instance}, ConverterParameter=15}"
-                                               Command="{Binding ApplyDurationPresetCommand}"
-                                               CommandParameter="15"
-                                               Content="15m"
-                                               Style="{StaticResource ChipButton}" />
-                                    <ui:Button Appearance="{Binding DurationTotalMinutes, Converter={x:Static views:PresetAppearanceConverter.Instance}, ConverterParameter=30}"
-                                               Command="{Binding ApplyDurationPresetCommand}"
-                                               CommandParameter="30"
-                                               Content="30m"
-                                               Style="{StaticResource ChipButton}" />
-                                    <ui:Button Appearance="{Binding DurationTotalMinutes, Converter={x:Static views:PresetAppearanceConverter.Instance}, ConverterParameter=60}"
-                                               Command="{Binding ApplyDurationPresetCommand}"
-                                               CommandParameter="60"
-                                               Content="1h"
-                                               Style="{StaticResource ChipButton}" />
-                                    <ui:Button Appearance="{Binding DurationTotalMinutes, Converter={x:Static views:PresetAppearanceConverter.Instance}, ConverterParameter=480}"
-                                               Command="{Binding ApplyDurationPresetCommand}"
-                                               CommandParameter="480"
-                                               Content="8h"
-                                               Style="{StaticResource ChipButton}" />
-                                </StackPanel>
+                                <ItemsControl HorizontalAlignment="Right"
+                                              ItemsSource="{x:Static viewmodels:MainViewModel.DurationPresets}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <ui:Button Command="{Binding DataContext.ApplyDurationPresetCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                       CommandParameter="{Binding Value}"
+                                                       Content="{Binding Label}"
+                                                       Style="{StaticResource ChipButton}">
+                                                <ui:Button.Appearance>
+                                                    <MultiBinding Converter="{x:Static views:PresetAppearanceConverter.Instance}">
+                                                        <Binding Path="Value" />
+                                                        <Binding Path="DataContext.DurationTotalMinutes"
+                                                                 RelativeSource="{RelativeSource AncestorType=ItemsControl}" />
+                                                    </MultiBinding>
+                                                </ui:Button.Appearance>
+                                            </ui:Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
                             </Grid>
                             <Grid Margin="0,10,0,0">
                                 <Grid.ColumnDefinitions>

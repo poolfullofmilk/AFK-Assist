@@ -9,8 +9,7 @@ internal static partial class GameWindowFocus
 
     public static string? TryFocusGameWindow(string? preferredProcessKey)
     {
-        var (windowHandle, processKey) = FindGameWindow(preferredProcessKey);
-        if (windowHandle == 0)
+        if (FindGameWindow(preferredProcessKey) is not (var windowHandle, var processKey))
         {
             return null;
         }
@@ -52,7 +51,7 @@ internal static partial class GameWindowFocus
         }
     }
 
-    private static (nint WindowHandle, string ProcessKey) FindGameWindow(
+    private static (nint WindowHandle, string ProcessKey)? FindGameWindow(
         string? preferredProcessKey
     )
     {
@@ -77,7 +76,7 @@ internal static partial class GameWindowFocus
             }
         }
 
-        return (0, string.Empty);
+        return null;
     }
 
     private static bool TryForeground(nint windowHandle)

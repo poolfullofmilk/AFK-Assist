@@ -159,14 +159,12 @@ internal static partial class GameScanner
 
     private static int ScoreExecutable(string executableName, string folderName)
     {
-        var bonusCount = s_executableBonusTokens.Count(token =>
-            executableName.Contains(token, StringComparison.OrdinalIgnoreCase)
-        );
-        var penalty = executableName.Contains("launcher", StringComparison.OrdinalIgnoreCase)
-            ? 5
-            : 0;
-
-        var score = (bonusCount * 3) - penalty;
+        var score =
+            (
+                s_executableBonusTokens.Count(token =>
+                    executableName.Contains(token, StringComparison.OrdinalIgnoreCase)
+                ) * 3
+            ) - (executableName.Contains("launcher", StringComparison.OrdinalIgnoreCase) ? 5 : 0);
 
         // Reward A Name Matching Its Folder
         if (executableName.Equals(folderName, StringComparison.OrdinalIgnoreCase))
@@ -196,106 +194,83 @@ internal static partial class GameScanner
     #endregion
 
     #region Steam
-    private static IEnumerable<string> DiscoverSteamGameRoots()
+    private static List<string> DiscoverSteamGameRoots()
     {
-        var primarySteamRoot = s_steamRoots.FirstOrDefault(Directory.Exists);
-        if (primarySteamRoot is null)
+        List<string> roots = [];
+
+        try
         {
-            yield break;
-        }
+            var libraryFolders = File.ReadAllText(
+                Path.Combine(
+                    s_steamRoots.First(Directory.Exists),
+                    "steamapps",
+                    "libraryfolders.vdf"
+                )
+            );
 
-        var libraryFoldersPath = Path.Combine(primarySteamRoot, "steamapps", "libraryfolders.vdf");
-
-        foreach (var libraryRoot in ParseSteamLibraryFolders(libraryFoldersPath))
-        {
-            var steamAppsDirectory = Path.Combine(libraryRoot, "steamapps");
-
-            foreach (
-                var manifestPath in EnumerateFilesSafely(steamAppsDirectory, "appmanifest_*.acf")
-            )
+            foreach (Match libraryMatch in LibraryPathRegex().Matches(libraryFolders))
             {
-                var installDirectory = TryReadSteamInstallDirectory(manifestPath);
-                if (installDirectory is null)
-                {
-                    continue;
-                }
+                var steamAppsDirectory = Path.Combine(
+                    libraryMatch.Groups["libraryPath"].Value.Replace(@"\\", @"\"),
+                    "steamapps"
+                );
 
-                var gameRoot = Path.Combine(steamAppsDirectory, "common", installDirectory);
-                if (Directory.Exists(gameRoot))
+                foreach (
+                    var manifestPath in EnumerateFilesSafely(
+                        steamAppsDirectory,
+                        "appmanifest_*.acf"
+                    )
+                )
                 {
-                    yield return gameRoot;
+                    var installMatch = InstallDirectoryRegex()
+                        .Match(File.ReadAllText(manifestPath));
+                    var gameRoot = Path.Combine(
+                        steamAppsDirectory,
+                        "common",
+                        installMatch.Groups["installDirectory"].Value
+                    );
+
+                    if (installMatch.Success && Directory.Exists(gameRoot))
+                    {
+                        roots.Add(gameRoot);
+                    }
                 }
             }
         }
-    }
+        catch { }
 
-    private static IEnumerable<string> ParseSteamLibraryFolders(string libraryFoldersPath)
-    {
-        string fileText;
-        try
-        {
-            fileText = File.ReadAllText(libraryFoldersPath);
-        }
-        catch
-        {
-            yield break;
-        }
-
-        foreach (Match match in LibraryPathRegex().Matches(fileText))
-        {
-            var normalizedPath = match.Groups["libraryPath"].Value.Replace(@"\\", @"\");
-            if (Directory.Exists(normalizedPath))
-            {
-                yield return normalizedPath;
-            }
-        }
-    }
-
-    private static string? TryReadSteamInstallDirectory(string manifestPath)
-    {
-        try
-        {
-            var match = InstallDirectoryRegex().Match(File.ReadAllText(manifestPath));
-            return match.Success ? match.Groups["installDirectory"].Value : null;
-        }
-        catch
-        {
-            return null;
-        }
+        return roots;
     }
     #endregion
 
     #region Epic
-    private static IEnumerable<string> DiscoverEpicGameRoots()
+    private static List<string> DiscoverEpicGameRoots()
     {
-        const string ManifestsDirectory = @"C:\ProgramData\Epic\EpicGamesLauncher\Data\Manifests";
+        List<string> roots = [];
 
-        foreach (var itemFilePath in EnumerateFilesSafely(ManifestsDirectory, "*.item"))
-        {
-            var installLocation = TryReadEpicInstallLocation(itemFilePath);
-            if (Directory.Exists(installLocation))
-            {
-                yield return installLocation;
-            }
-        }
-    }
-
-    private static string? TryReadEpicInstallLocation(string itemFilePath)
-    {
         try
         {
-            using var jsonDocument = JsonDocument.Parse(File.ReadAllText(itemFilePath));
+            foreach (
+                var itemFilePath in EnumerateFilesSafely(
+                    @"C:\ProgramData\Epic\EpicGamesLauncher\Data\Manifests",
+                    "*.item"
+                )
+            )
+            {
+                using var jsonDocument = JsonDocument.Parse(File.ReadAllText(itemFilePath));
+                var installLocation = jsonDocument
+                    .RootElement.GetProperty("InstallLocation")
+                    .GetString();
 
-            return
-                jsonDocument.RootElement.TryGetProperty("InstallLocation", out var location)
-                && location.ValueKind == JsonValueKind.String
-                ? location.GetString()
-                : null;
+                if (Directory.Exists(installLocation))
+                {
+                    roots.Add(installLocation);
+                }
+            }
         }
-        catch
-        {
-            return null;
-        }
+        catch { }
+
+        return roots;
     }
     #endregion
 
@@ -332,13 +307,9 @@ internal static partial class GameScanner
     #endregion
 
     #region Rockstar
-    private static IEnumerable<string> DiscoverRockstarGameRoots() =>
-        DiscoverRockstarFromRegistry()
-            .Concat(s_rockstarRoots.SelectMany(EnumerateDirectoriesSafely));
-
-    private static List<string> DiscoverRockstarFromRegistry()
+    private static List<string> DiscoverRockstarGameRoots()
     {
-        List<string> results = [];
+        List<string> roots = [];
 
         try
         {
@@ -354,36 +325,28 @@ internal static partial class GameScanner
 
                 if (Directory.Exists(installLocation))
                 {
-                    results.Add(installLocation);
+                    roots.Add(installLocation);
                 }
             }
         }
         catch { }
 
-        return results;
+        roots.AddRange(s_rockstarRoots.SelectMany(EnumerateDirectoriesSafely));
+        return roots;
     }
     #endregion
 
     #region Roblox
-    private static IEnumerable<string> DiscoverRobloxGameRoots()
-    {
-        var robloxVersionsPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Roblox",
-            "Versions"
-        );
-
-        // Every Version Folder Holds The Same Player
-        var versionDirectory = EnumerateDirectoriesSafely(robloxVersionsPath)
-            .FirstOrDefault(directory =>
-                File.Exists(Path.Combine(directory, "RobloxPlayerBeta.exe"))
-            );
-
-        if (versionDirectory is not null)
-        {
-            yield return versionDirectory;
-        }
-    }
+    private static IEnumerable<string> DiscoverRobloxGameRoots() =>
+        EnumerateDirectoriesSafely(
+                Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Roblox",
+                    "Versions"
+                )
+            )
+            .Where(directory => File.Exists(Path.Combine(directory, "RobloxPlayerBeta.exe")))
+            .Take(1);
     #endregion
 
     #region File System
