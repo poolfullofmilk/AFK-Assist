@@ -22,6 +22,9 @@ internal static partial class GameScanner
         "setup",
     ];
 
+    // Executable Name Tokens Earning Three Points Each
+    private static readonly string[] s_executableBonusTokens = ["win64", "shipping"];
+
     // Games Whose Folder Name Reads Badly
     private static readonly Dictionary<string, string> s_displayNameAliases = new(
         StringComparer.OrdinalIgnoreCase
@@ -34,17 +37,11 @@ internal static partial class GameScanner
         ["repo"] = "R.E.P.O.",
     };
 
-    // Executable Name Tokens Costing Five Points Each
-    private static readonly string[] s_executablePenaltyTokens = ["launcher"];
-
-    // Executable Name Tokens Earning Three Points Each
-    private static readonly string[] s_executableBonusTokens = ["win64", "shipping"];
-
     // Subdirectories Games Commonly Hide Their Executable In
     private static readonly string[] s_executableSubdirectories =
     [
         "",
-        @"Binaries",
+        "Binaries",
         @"Binaries\Win64",
         @"bin\win64",
         @"game\bin\win64",
@@ -57,9 +54,19 @@ internal static partial class GameScanner
         @"C:\Program Files\Steam",
     ];
 
+    private static readonly string[] s_rockstarRoots =
+    [
+        @"C:\Program Files\Rockstar Games",
+        @"C:\Program Files (x86)\Rockstar Games",
+    ];
+
     private static readonly string[] s_commonGameRoots = [@"C:\Games", @"D:\Games", @"E:\Games"];
 
-    private static readonly Lazy<Dictionary<string, string>> s_cache = new(Scan);
+    // A Failed Scan Is Retried Instead Of Cached
+    private static readonly Lazy<Dictionary<string, string>> s_cache = new(
+        Scan,
+        LazyThreadSafetyMode.PublicationOnly
+    );
 
     static GameScanner()
     {
@@ -67,8 +74,6 @@ internal static partial class GameScanner
     }
 
     public static IReadOnlyDictionary<string, string> InstalledGames => s_cache.Value;
-
-    public static void BeginScan() => Task.Run(() => _ = s_cache.Value);
 
     #region Scan
     private static Dictionary<string, string> Scan()
@@ -84,21 +89,19 @@ internal static partial class GameScanner
 
         foreach (var rootDirectory in gameRoots)
         {
-            var executablePath = ResolveMainExecutable(rootDirectory);
-            if (executablePath is null)
+            var folderName = new DirectoryInfo(rootDirectory).Name;
+            var executableName = ResolveMainExecutableName(rootDirectory, folderName);
+            if (executableName is null)
             {
                 continue;
             }
 
-            var processName = NormalizeProcessKey(Path.GetFileNameWithoutExtension(executablePath));
+            var processName = NormalizeProcessKey(executableName);
 
+            // The First Folder Claiming A Key Keeps It
             if (processName.Length >= 2 && processName != "launcher")
             {
-                // The First Folder Claiming A Key Keeps It
-                installedGames.TryAdd(
-                    processName,
-                    BuildDisplayName(new DirectoryInfo(rootDirectory).Name, processName)
-                );
+                installedGames.TryAdd(processName, BuildDisplayName(folderName, processName));
             }
         }
 
@@ -113,24 +116,14 @@ internal static partial class GameScanner
         }
 
         // A Folder With Spaces Or Capitals Reads Fine
-        var looksWritten = folderName.Any(character =>
-            char.IsWhiteSpace(character) || char.IsUpper(character)
-        );
-
-        return looksWritten
+        return folderName.Any(char.IsUpper) || folderName.Contains(' ')
             ? folderName
             : CultureInfo.CurrentCulture.TextInfo.ToTitleCase(folderName);
     }
 
-    private static string? ResolveMainExecutable(string rootDirectory)
+    private static string? ResolveMainExecutableName(string rootDirectory, string folderName)
     {
-        if (string.IsNullOrWhiteSpace(rootDirectory) || !Directory.Exists(rootDirectory))
-        {
-            return null;
-        }
-
-        var folderName = new DirectoryInfo(rootDirectory).Name;
-        string? bestExecutablePath = null;
+        string? bestExecutableName = null;
         var bestScore = int.MinValue;
 
         foreach (var subdirectory in s_executableSubdirectories)
@@ -139,45 +132,41 @@ internal static partial class GameScanner
 
             foreach (var executablePath in EnumerateFilesSafely(probeDirectory, "*.exe"))
             {
+                var executableName = Path.GetFileNameWithoutExtension(executablePath);
+
                 // Vetoed Names Never Compete
-                if (IsRejectedExecutable(executablePath))
+                if (IsRejectedExecutable(executableName))
                 {
                     continue;
                 }
 
-                var score = ScoreExecutable(executablePath, folderName);
+                var score = ScoreExecutable(executableName, folderName);
                 if (score > bestScore)
                 {
                     bestScore = score;
-                    bestExecutablePath = executablePath;
+                    bestExecutableName = executableName;
                 }
             }
         }
 
-        return bestExecutablePath;
+        return bestExecutableName;
     }
 
-    private static bool IsRejectedExecutable(string executablePath)
-    {
-        var executableName = Path.GetFileNameWithoutExtension(executablePath);
-
-        return s_executableRejectTokens.Any(token =>
+    private static bool IsRejectedExecutable(string executableName) =>
+        s_executableRejectTokens.Any(token =>
             executableName.Contains(token, StringComparison.OrdinalIgnoreCase)
         );
-    }
 
-    private static int ScoreExecutable(string executablePath, string folderName)
+    private static int ScoreExecutable(string executableName, string folderName)
     {
-        var executableName = Path.GetFileNameWithoutExtension(executablePath);
-
         var bonusCount = s_executableBonusTokens.Count(token =>
             executableName.Contains(token, StringComparison.OrdinalIgnoreCase)
         );
-        var penaltyCount = s_executablePenaltyTokens.Count(token =>
-            executableName.Contains(token, StringComparison.OrdinalIgnoreCase)
-        );
+        var penalty = executableName.Contains("launcher", StringComparison.OrdinalIgnoreCase)
+            ? 5
+            : 0;
 
-        var score = (bonusCount * 3) - (penaltyCount * 5);
+        var score = (bonusCount * 3) - penalty;
 
         // Reward A Name Matching Its Folder
         if (executableName.Equals(folderName, StringComparison.OrdinalIgnoreCase))
@@ -197,7 +186,7 @@ internal static partial class GameScanner
         var cleaned = name.Replace("_", "").Replace("-", "").ToLowerInvariant();
 
         // Games Shipping Under Many Executable Names
-        if (cleaned.StartsWith("acs") || cleaned.Contains("assettocorsa"))
+        if (cleaned is "acs" or "acsx86" || cleaned.Contains("assettocorsa"))
         {
             return "assettocorsa";
         }
@@ -216,10 +205,6 @@ internal static partial class GameScanner
         }
 
         var libraryFoldersPath = Path.Combine(primarySteamRoot, "steamapps", "libraryfolders.vdf");
-        if (!File.Exists(libraryFoldersPath))
-        {
-            yield break;
-        }
 
         foreach (var libraryRoot in ParseSteamLibraryFolders(libraryFoldersPath))
         {
@@ -256,10 +241,7 @@ internal static partial class GameScanner
             yield break;
         }
 
-        // The Primary Library Is Not Listed In The File
-        yield return Path.GetDirectoryName(Path.GetDirectoryName(libraryFoldersPath))!;
-
-        foreach (Match match in InstalledPathRegex().Matches(fileText))
+        foreach (Match match in LibraryPathRegex().Matches(fileText))
         {
             var normalizedPath = match.Groups["libraryPath"].Value.Replace(@"\\", @"\");
             if (Directory.Exists(normalizedPath))
@@ -273,7 +255,7 @@ internal static partial class GameScanner
     {
         try
         {
-            var match = InstalledDirectoryRegex().Match(File.ReadAllText(manifestPath));
+            var match = InstallDirectoryRegex().Match(File.ReadAllText(manifestPath));
             return match.Success ? match.Groups["installDirectory"].Value : null;
         }
         catch
@@ -291,7 +273,7 @@ internal static partial class GameScanner
         foreach (var itemFilePath in EnumerateFilesSafely(ManifestsDirectory, "*.item"))
         {
             var installLocation = TryReadEpicInstallLocation(itemFilePath);
-            if (installLocation is not null && Directory.Exists(installLocation))
+            if (Directory.Exists(installLocation))
             {
                 yield return installLocation;
             }
@@ -302,7 +284,7 @@ internal static partial class GameScanner
     {
         try
         {
-            using JsonDocument jsonDocument = JsonDocument.Parse(File.ReadAllText(itemFilePath));
+            using var jsonDocument = JsonDocument.Parse(File.ReadAllText(itemFilePath));
 
             return
                 jsonDocument.RootElement.TryGetProperty("InstallLocation", out var location)
@@ -318,37 +300,13 @@ internal static partial class GameScanner
     #endregion
 
     #region Riot
-    private static IEnumerable<string> DiscoverRiotGameRoots()
-    {
-        HashSet<string> seenPaths = new(StringComparer.OrdinalIgnoreCase);
-
-        foreach (
-            var riotDirectory in new[]
-            {
-                @"C:\Riot Games\VALORANT",
-                @"C:\Riot Games\League of Legends",
-            }
-        )
-        {
-            if (Directory.Exists(riotDirectory) && seenPaths.Add(riotDirectory))
-            {
-                yield return riotDirectory;
-            }
-        }
-
-        foreach (var riotRoot in DiscoverRiotRootsFromInstallsFile(seenPaths))
-        {
-            yield return riotRoot;
-        }
-    }
-
-    private static List<string> DiscoverRiotRootsFromInstallsFile(HashSet<string> seenPaths)
+    private static List<string> DiscoverRiotGameRoots()
     {
         List<string> roots = [];
 
         try
         {
-            using JsonDocument jsonDocument = JsonDocument.Parse(
+            using var jsonDocument = JsonDocument.Parse(
                 File.ReadAllText(@"C:\ProgramData\Riot Games\RiotClientInstalls.json")
             );
 
@@ -360,22 +318,11 @@ internal static partial class GameScanner
                 }
 
                 // Two Levels Up From The Client Is The Riot Root
-                var clientDirectory = Path.GetDirectoryName(
-                    property.Value.GetString()?.TrimEnd('\\', '/')
+                var riotRoot = Path.GetDirectoryName(
+                    Path.GetDirectoryName(property.Value.GetString()?.TrimEnd('\\', '/'))
                 );
-                var riotRoot = Path.GetDirectoryName(clientDirectory);
-                if (string.IsNullOrWhiteSpace(riotRoot))
-                {
-                    continue;
-                }
 
-                foreach (var gameDirectory in EnumerateDirectoriesSafely(riotRoot))
-                {
-                    if (seenPaths.Add(gameDirectory))
-                    {
-                        roots.Add(gameDirectory);
-                    }
-                }
+                roots.AddRange(EnumerateDirectoriesSafely(riotRoot));
             }
         }
         catch { }
@@ -385,66 +332,30 @@ internal static partial class GameScanner
     #endregion
 
     #region Rockstar
-    private static IEnumerable<string> DiscoverRockstarGameRoots()
-    {
-        HashSet<string> seenPaths = new(StringComparer.OrdinalIgnoreCase);
+    private static IEnumerable<string> DiscoverRockstarGameRoots() =>
+        DiscoverRockstarFromRegistry()
+            .Concat(s_rockstarRoots.SelectMany(EnumerateDirectoriesSafely));
 
-        foreach (var registryRoot in DiscoverRockstarFromRegistry(seenPaths))
-        {
-            yield return registryRoot;
-        }
-
-        foreach (
-            var baseDirectory in new[]
-            {
-                @"C:\Program Files\Rockstar Games",
-                @"C:\Program Files (x86)\Rockstar Games",
-            }
-        )
-        {
-            foreach (var childDirectory in EnumerateDirectoriesSafely(baseDirectory))
-            {
-                if (seenPaths.Add(childDirectory))
-                {
-                    yield return childDirectory;
-                }
-            }
-        }
-    }
-
-    private static List<string> DiscoverRockstarFromRegistry(HashSet<string> seenPaths)
+    private static List<string> DiscoverRockstarFromRegistry()
     {
         List<string> results = [];
 
         try
         {
             using var baseKey = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Rockstar Games");
-            if (baseKey is null)
-            {
-                return results;
-            }
 
-            foreach (var subKeyName in baseKey.GetSubKeyNames())
+            foreach (var subKeyName in baseKey?.GetSubKeyNames() ?? [])
             {
-                try
+                using var subKey = baseKey!.OpenSubKey(subKeyName);
+                var installLocation = (
+                    (subKey?.GetValue("InstallFolder") as string)
+                    ?? (subKey?.GetValue("InstallLocation") as string)
+                )?.TrimEnd('\\', '/');
+
+                if (Directory.Exists(installLocation))
                 {
-                    using var subKey = baseKey.OpenSubKey(subKeyName);
-                    var installLocation = (
-                        (subKey?.GetValue("InstallFolder") as string)
-                        ?? (subKey?.GetValue("InstallLocation") as string)
-                        ?? string.Empty
-                    ).TrimEnd('\\', '/');
-
-                    if (
-                        !string.IsNullOrWhiteSpace(installLocation)
-                        && Directory.Exists(installLocation)
-                        && seenPaths.Add(installLocation)
-                    )
-                    {
-                        results.Add(installLocation);
-                    }
+                    results.Add(installLocation);
                 }
-                catch { }
             }
         }
         catch { }
@@ -477,49 +388,14 @@ internal static partial class GameScanner
 
     #region File System
     private static IEnumerable<string> EnumerateFilesSafely(string directoryPath, string pattern) =>
-        EnumerateSafely(() =>
-            Directory.EnumerateFiles(directoryPath, pattern, new EnumerationOptions())
-        );
+        Directory.Exists(directoryPath)
+            ? Directory.EnumerateFiles(directoryPath, pattern, new EnumerationOptions())
+            : [];
 
-    private static IEnumerable<string> EnumerateDirectoriesSafely(string directoryPath) =>
-        EnumerateSafely(() =>
-            Directory.EnumerateDirectories(directoryPath, "*", new EnumerationOptions())
-        );
-
-    private static IEnumerable<string> EnumerateSafely(Func<IEnumerable<string>> enumerate)
-    {
-        IEnumerator<string> enumerator;
-
-        try
-        {
-            enumerator = enumerate().GetEnumerator();
-        }
-        catch
-        {
-            yield break;
-        }
-
-        // Enumeration Is Lazy So Missing Roots Throw On MoveNext
-        using (enumerator)
-        {
-            while (true)
-            {
-                try
-                {
-                    if (!enumerator.MoveNext())
-                    {
-                        yield break;
-                    }
-                }
-                catch
-                {
-                    yield break;
-                }
-
-                yield return enumerator.Current;
-            }
-        }
-    }
+    private static IEnumerable<string> EnumerateDirectoriesSafely(string? directoryPath) =>
+        Directory.Exists(directoryPath)
+            ? Directory.EnumerateDirectories(directoryPath, "*", new EnumerationOptions())
+            : [];
     #endregion
 
     #region Self Test
@@ -527,8 +403,8 @@ internal static partial class GameScanner
     {
         if (
             NormalizeProcessKey("acs") != "assettocorsa"
+            || NormalizeProcessKey("ACShadows") != "acshadows"
             || NormalizeProcessKey("VALORANT-Win64-Shipping") != "valorant"
-            || NormalizeProcessKey("RobloxPlayerBeta") != "robloxplayerbeta"
         )
         {
             return false;
@@ -536,8 +412,8 @@ internal static partial class GameScanner
 
         // The Game Must Outrank Its Launcher
         if (
-            ScoreExecutable(@"C:\Games\Fortnite\FortniteClient-Win64-Shipping.exe", "Fortnite")
-            <= ScoreExecutable(@"C:\Games\Fortnite\FortniteLauncher.exe", "Fortnite")
+            ScoreExecutable("FortniteClient-Win64-Shipping", "Fortnite")
+            <= ScoreExecutable("FortniteLauncher", "Fortnite")
         )
         {
             return false;
@@ -556,27 +432,22 @@ internal static partial class GameScanner
         // Vetoed Names Must Be Dropped Before Scoring
         string[] rejected =
         [
-            @"C:\Games\Rust\RustCrashHandler.exe",
-            @"C:\Games\Rust\CrsVideo.exe",
-            @"C:\Games\Rust\Uninstall.exe",
-            @"C:\Games\Rust\EasyAntiCheat_Setup.exe",
-            @"C:\Games\Rust\SomeService.exe",
+            "RustCrashHandler",
+            "CrsVideo",
+            "Uninstall",
+            "EasyAntiCheat_Setup",
+            "SomeService",
         ];
 
-        return rejected.All(IsRejectedExecutable)
-            && !IsRejectedExecutable(@"C:\Games\Rust\Rust.exe");
+        return rejected.All(IsRejectedExecutable) && !IsRejectedExecutable("Rust");
     }
     #endregion
 
     #region Regexes
-    [GeneratedRegex(
-        "\"installdir\"\\s*\"(?<installDirectory>[^\"]+)\"",
-        RegexOptions.IgnoreCase,
-        "en-US"
-    )]
-    private static partial Regex InstalledDirectoryRegex();
+    [GeneratedRegex("\"installdir\"\\s*\"(?<installDirectory>[^\"]+)\"")]
+    private static partial Regex InstallDirectoryRegex();
 
-    [GeneratedRegex("\"path\"\\s*\"(?<libraryPath>[^\"]+)\"", RegexOptions.IgnoreCase, "en-US")]
-    private static partial Regex InstalledPathRegex();
+    [GeneratedRegex("\"path\"\\s*\"(?<libraryPath>[^\"]+)\"")]
+    private static partial Regex LibraryPathRegex();
     #endregion
 }

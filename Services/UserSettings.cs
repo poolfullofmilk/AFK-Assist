@@ -11,15 +11,19 @@ internal sealed record UserSettings(
     bool BackwardKey,
     bool RightKey,
     bool CustomKey,
-    int CustomKeyVirtualKey,
+    ushort CustomKeyVirtualKey,
     int SimulationsPerMinute,
+    double StartDelayMinutes,
+    double StartDelaySeconds,
     double DurationHours,
     double DurationMinutes,
-    double StartDelaySeconds,
+    bool RunUntil,
     bool SwitchToGame,
     bool RandomizeSimulation,
     bool RandomizeIntervals,
-    string PreferredGame
+    bool HoldKeys,
+    bool MouseMovement,
+    string? PreferredGameKey
 )
 {
     private static readonly string s_filePath = Path.Combine(

@@ -1,5 +1,3 @@
-using System.Diagnostics;
-
 namespace AFK_Assist.Services;
 
 internal static class SimulationSchedule
@@ -14,9 +12,9 @@ internal static class SimulationSchedule
 
         for (var index = 0; index < simulationsPerMinute; index++)
         {
-            // One Action Per Slot Keeps The Count Exact
+            // Jitter Stays Inside The Slot So The Order Never Changes
             var offsetSeconds = randomizeIntervals
-                ? ((Random.Shared.NextDouble() * 2.0) - 1.0)
+                ? (Random.Shared.NextDouble() + Random.Shared.NextDouble() - 1.0)
                     * spacingSeconds
                     * MaximumJitterFraction
                 : 0.0;
@@ -27,15 +25,6 @@ internal static class SimulationSchedule
                 60.0 - EdgeMarginSeconds
             );
         }
-
-        Array.Sort(dueSeconds);
-
-        Debug.Assert(
-            dueSeconds.Length == simulationsPerMinute
-                && dueSeconds[0] >= EdgeMarginSeconds
-                && dueSeconds[^1] < 60.0,
-            "Schedule Must Hold Every Action Inside The Minute"
-        );
 
         return dueSeconds;
     }

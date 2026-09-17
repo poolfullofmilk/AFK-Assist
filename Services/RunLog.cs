@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 
 namespace AFK_Assist.Services;
@@ -27,28 +28,35 @@ internal static class RunLog
         }
     }
 
-    public static int DeleteAll()
+    public static void OpenFolder()
     {
+        Directory.CreateDirectory(DirectoryPath);
+        Process.Start(new ProcessStartInfo { FileName = DirectoryPath, UseShellExecute = true });
+    }
+
+    public static int Delete(DateTime writtenBefore)
+    {
+        if (!Directory.Exists(DirectoryPath))
+        {
+            return 0;
+        }
+
         var deletedCount = 0;
 
-        try
+        foreach (var filePath in Directory.EnumerateFiles(DirectoryPath, "Run *.txt"))
         {
-            foreach (var filePath in Directory.EnumerateFiles(DirectoryPath, "Run *.txt"))
+            try
             {
-                try
+                if (File.GetLastWriteTime(filePath) < writtenBefore)
                 {
                     File.Delete(filePath);
                     deletedCount++;
                 }
-                catch
-                {
-                    // A File Held Open Elsewhere Stays
-                }
             }
-        }
-        catch
-        {
-            // No Folder Means Nothing To Delete
+            catch
+            {
+                // A File Held Open Elsewhere Stays
+            }
         }
 
         return deletedCount;

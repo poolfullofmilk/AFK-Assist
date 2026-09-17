@@ -7,19 +7,21 @@ Keep Your Game Active While You Are Away By Simulating Keyboard And Mouse Input
 ![AFK Assist Running](Screenshot-Running.png)
 
 ## Features
-- Keyboard (WASD Or Chosen Keys) And Mouse (Left/Right) Simulation
+- Keyboard (WASD Or Chosen Keys) And Mouse (Left/Right Click) Simulation
 - One Custom Key, Recorded By Pressing It
-- Adjustable Speed (1-10 Simulations Per Minute) And Duration (Up To 8 Hours)
-- Duration Presets For 15m, 30m, 1h And 8h, Plus An Optional Start Delay
-- Optional: Randomized Patterns, Randomized Intervals, Auto Focus To Game Window, Azerty Auto Detection
-- Picks Any Installed Game To Focus, Or Finds A Running One Automatically
-- Live Activity Log With Elapsed And Remaining Timers
-- Every Run Is Saved To Documents, Clearable From The App
+- Adjustable Speed (1-10 Simulations Per Minute) With An Optional Start Delay
+- Run For A Duration (Up To 8 Hours) Or Run Until A Clock Time, With Presets For Both
+- Only Types Into The Game When Switch To Game Is On, And Picks The First Game It Finds
+- Pauses When You Touch The PC And Resumes After A Minute Of Idle
+- Optional: Randomized Patterns, Randomized Intervals, Longer Key Holds, Natural Mouse Movement
+- Timing Clusters Like Real Hands, Mouse Glides Sideways With Slight Tremor
+- Works With Any Keyboard Layout, Keys Stay On The Physical WASD Positions
+- Live Activity Log, Saved To Documents For 30 Days
 - Settings Are Remembered Between Sessions
 - Pause To Change Anything Mid Run, Then Resume
 
 ## Quick Start
-1. Choose Mouse Clicks
+1. Choose Mouse Actions
 2. Choose Keyboard Keys
 3. Choose Speed
 4. Choose Duration
@@ -27,7 +29,8 @@ Keep Your Game Active While You Are Away By Simulating Keyboard And Mouse Input
 
 ## ⚠️ Important
 - Game Support For Virtual Input Varies, Some Games Only Count Mouse Activity Against Their AFK Timer
-- Keep The Game Window Focused And The Cursor Inside It For The Simulation To Work
+- Keep The Cursor Inside The Game Window When Clicks Are On
+- Windows Flags Simulated Input As Injected, Anti-Cheat Can Tell It Apart From Real Input
 
 ## Technical Details
 - Windows App Built With C# And WPF On .NET 10
@@ -35,4 +38,4 @@ Keep Your Game Active While You Are Away By Simulating Keyboard And Mouse Input
 - Input Is Injected With The Win32 SendInput API Using Both Virtual Keys And Scan Codes
 
 ## Download
-Get The Latest Version From The [Latest Release](https://github.com/yusuftuncay/AFK-Assist/releases/latest)
+Get The Latest Version From The [Latest Release](https://github.com/poolfullofmilk/AFK-Assist/releases/latest)

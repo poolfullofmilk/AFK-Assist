@@ -1,4 +1,3 @@
-using System.Collections.Specialized;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -11,7 +10,7 @@ namespace AFK_Assist.Views;
 public partial class MainWindow : FluentWindow
 {
     private readonly MainViewModel _viewModel;
-    private double _baseMinimumHeight;
+    private double _baseHeight;
 
     public MainWindow()
     {
@@ -19,7 +18,10 @@ public partial class MainWindow : FluentWindow
 
         _viewModel = new MainViewModel();
         DataContext = _viewModel;
-        _viewModel.LogEntries.CollectionChanged += ScrollLogToEnd;
+
+        // Scroll Once The New Row Is Laid Out
+        _viewModel.LogEntries.CollectionChanged += (_, _) =>
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, LogScrollViewer.ScrollToEnd);
 
         Loaded += (_, _) =>
             Dispatcher.BeginInvoke(DispatcherPriority.Background, LockHeightToContent);
@@ -28,8 +30,8 @@ public partial class MainWindow : FluentWindow
         NoticeBar.IsVisibleChanged += (_, _) => MakeRoomForNotice();
         CustomKeyButton.LostKeyboardFocus += (_, _) => _viewModel.ApplyCapturedKey(0);
 
-        ApplicationThemeManager.ApplySystemTheme();
-        SystemThemeWatcher.Watch(this);
+        ApplicationThemeManager.ApplySystemTheme(updateAccent: true);
+        SystemThemeWatcher.Watch(this, WindowBackdropType.Mica, updateAccents: true);
     }
 
     private void LockHeightToContent()
@@ -38,30 +40,20 @@ public partial class MainWindow : FluentWindow
         SizeToContent = SizeToContent.Height;
         UpdateLayout();
 
+        // A Small Screen Scrolls The Configuration Instead
         SizeToContent = SizeToContent.Manual;
-        MinHeight = ActualHeight;
-        _baseMinimumHeight = ActualHeight - CurrentNoticeHeight();
+        _baseHeight = Math.Min(ActualHeight, SystemParameters.WorkArea.Height) - NoticeHeight();
+        MakeRoomForNotice();
     }
 
-    private double CurrentNoticeHeight() =>
-        NoticeBar.IsVisible && NoticeBar.ActualHeight > 0
-            ? NoticeBar.ActualHeight + NoticeBar.Margin.Bottom
-            : 0;
+    private double NoticeHeight() =>
+        NoticeBar.IsVisible ? NoticeBar.ActualHeight + NoticeBar.Margin.Bottom : 0;
 
     private void MakeRoomForNotice()
     {
-        if (_baseMinimumHeight <= 0)
+        if (_baseHeight > 0)
         {
-            return;
-        }
-
-        double previousMinimum = MinHeight;
-        MinHeight = _baseMinimumHeight + CurrentNoticeHeight();
-
-        // An Enlarged Window Already Has Room
-        if (WindowState == WindowState.Normal && Math.Abs(Height - previousMinimum) < 1)
-        {
-            Height = MinHeight;
+            Height = _baseHeight + NoticeHeight();
         }
     }
 
@@ -75,37 +67,14 @@ public partial class MainWindow : FluentWindow
         var key = eventArgs.Key == Key.System ? eventArgs.SystemKey : eventArgs.Key;
 
         // A Bare Modifier Is Not A Usable Key
-        if (
-            key
-            is Key.LeftCtrl
-                or Key.RightCtrl
-                or Key.LeftShift
-                or Key.RightShift
-                or Key.LeftAlt
-                or Key.RightAlt
-                or Key.LWin
-                or Key.RWin
-        )
+        if (key is >= Key.LeftShift and <= Key.RightAlt or Key.LWin or Key.RWin)
         {
             return;
         }
 
         eventArgs.Handled = true;
-        _viewModel.ApplyCapturedKey(key == Key.Escape ? 0 : KeyInterop.VirtualKeyFromKey(key));
-    }
-
-    private void ScrollLogToEnd(object? sender, NotifyCollectionChangedEventArgs eventArgs)
-    {
-        // Scrolling Mid Update Throws
-        Dispatcher.BeginInvoke(
-            DispatcherPriority.Background,
-            () =>
-            {
-                if (LogListBox.Items.Count > 0)
-                {
-                    LogListBox.ScrollIntoView(LogListBox.Items[^1]);
-                }
-            }
+        _viewModel.ApplyCapturedKey(
+            key == Key.Escape ? (ushort)0 : (ushort)KeyInterop.VirtualKeyFromKey(key)
         );
     }
 }

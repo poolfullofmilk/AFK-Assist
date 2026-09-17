@@ -9,26 +9,26 @@ internal static partial class GameWindowFocus
 
     public static string? TryFocusGameWindow(string? preferredProcessKey)
     {
-        var (windowHandle, processName) = FindGameWindow(preferredProcessKey);
+        var (windowHandle, processKey) = FindGameWindow(preferredProcessKey);
         if (windowHandle == 0)
+        {
             return null;
+        }
 
         ShowWindow(windowHandle, ShowMaximized);
         if (TryForeground(windowHandle))
-            return processName;
+        {
+            return processKey;
+        }
 
         // Only The Owning Thread May Grant Foreground
         var foregroundThreadId = GetWindowThreadProcessId(GetForegroundWindow(), out _);
         var currentThreadId = GetCurrentThreadId();
-        if (foregroundThreadId == 0 || currentThreadId == 0)
-        {
-            return TryForeground(windowHandle) ? processName : null;
-        }
 
         try
         {
             AttachThreadInput(currentThreadId, foregroundThreadId, true);
-            return TryForeground(windowHandle) ? processName : null;
+            return TryForeground(windowHandle) ? processKey : null;
         }
         finally
         {
@@ -36,12 +36,26 @@ internal static partial class GameWindowFocus
         }
     }
 
-    private static (nint WindowHandle, string ProcessName) FindGameWindow(
+    public static bool IsForeground(string processKey)
+    {
+        GetWindowThreadProcessId(GetForegroundWindow(), out var processId);
+
+        try
+        {
+            using var process = Process.GetProcessById((int)processId);
+
+            return GameScanner.NormalizeProcessKey(process.ProcessName) == processKey;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static (nint WindowHandle, string ProcessKey) FindGameWindow(
         string? preferredProcessKey
     )
     {
-        var installedGames = GameScanner.InstalledGames;
-
         foreach (var process in Process.GetProcesses())
         {
             using (process)
@@ -53,12 +67,12 @@ internal static partial class GameWindowFocus
 
                 var processKey = GameScanner.NormalizeProcessKey(process.ProcessName);
                 var matches = preferredProcessKey is null
-                    ? installedGames.ContainsKey(processKey)
+                    ? GameScanner.InstalledGames.ContainsKey(processKey)
                     : processKey == preferredProcessKey;
 
                 if (matches)
                 {
-                    return (process.MainWindowHandle, process.ProcessName);
+                    return (process.MainWindowHandle, processKey);
                 }
             }
         }
