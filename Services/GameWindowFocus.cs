@@ -9,6 +9,8 @@ internal static partial class GameWindowFocus
 {
     private const int ShowRestored = 9;
 
+    private static Process? s_gameProcess;
+
     public static string? TryFocusGameWindow(string? preferredProcessKey)
     {
         if (FindGameWindow(preferredProcessKey) is not (var windowHandle, var processKey))
@@ -37,36 +39,19 @@ internal static partial class GameWindowFocus
         }
     }
 
-    public static bool IsForeground(string processKey)
+    public static bool IsForeground()
     {
         GetWindowThreadProcessId(GetForegroundWindow(), out var processId);
 
-        try
-        {
-            using var process = Process.GetProcessById((int)processId);
-
-            return GameScanner.NormalizeProcessKey(process.ProcessName) == processKey;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
+        return IsRunning() && s_gameProcess!.Id == (int)processId;
     }
 
-    public static bool IsRunning(string processKey)
-    {
-        foreach (var process in Process.GetProcesses())
-        {
-            using (process)
-            {
-                if (GameScanner.NormalizeProcessKey(process.ProcessName) == processKey)
-                {
-                    return true;
-                }
-            }
-        }
+    public static bool IsRunning() => s_gameProcess is { HasExited: false };
 
-        return false;
+    public static void Forget()
+    {
+        s_gameProcess?.Dispose();
+        s_gameProcess = null;
     }
 
     public static WindowBounds? ForegroundBounds() =>
@@ -78,23 +63,27 @@ internal static partial class GameWindowFocus
     {
         foreach (var process in Process.GetProcesses())
         {
-            using (process)
+            if (process.MainWindowHandle == 0)
             {
-                if (process.MainWindowHandle == 0)
-                {
-                    continue;
-                }
-
-                var processKey = GameScanner.NormalizeProcessKey(process.ProcessName);
-                var matches = preferredProcessKey is null
-                    ? GameScanner.InstalledGames.ContainsKey(processKey)
-                    : processKey == preferredProcessKey;
-
-                if (matches)
-                {
-                    return (process.MainWindowHandle, processKey);
-                }
+                process.Dispose();
+                continue;
             }
+
+            var processKey = GameScanner.NormalizeProcessKey(process.ProcessName);
+            var matches = preferredProcessKey is null
+                ? GameScanner.InstalledGames.ContainsKey(processKey)
+                : processKey == preferredProcessKey;
+
+            if (!matches)
+            {
+                process.Dispose();
+                continue;
+            }
+
+            // The Match Is Kept So Later Checks Need No Scan
+            Forget();
+            s_gameProcess = process;
+            return (process.MainWindowHandle, processKey);
         }
 
         return null;

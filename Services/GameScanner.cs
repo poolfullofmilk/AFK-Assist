@@ -181,7 +181,9 @@ internal static partial class GameScanner
 
     public static string NormalizeProcessKey(string name)
     {
-        var cleaned = name.Replace("_", "").Replace("-", "").ToLowerInvariant();
+        var cleaned = (
+            name.Contains('_') || name.Contains('-') ? name.Replace("_", "").Replace("-", "") : name
+        ).ToLowerInvariant();
 
         // Games Shipping Under Many Executable Names
         if (cleaned is "acs" or "acsx86" || cleaned.Contains("assettocorsa"))
@@ -224,13 +226,18 @@ internal static partial class GameScanner
                 {
                     var installMatch = InstallDirectoryRegex()
                         .Match(File.ReadAllText(manifestPath));
+                    if (!installMatch.Success)
+                    {
+                        continue;
+                    }
+
                     var gameRoot = Path.Combine(
                         steamAppsDirectory,
                         "common",
                         installMatch.Groups["installDirectory"].Value
                     );
 
-                    if (installMatch.Success && Directory.Exists(gameRoot))
+                    if (Directory.Exists(gameRoot))
                     {
                         roots.Add(gameRoot);
                     }

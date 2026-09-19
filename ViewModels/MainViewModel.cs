@@ -18,9 +18,9 @@ internal enum LogKind
     Error,
 }
 
-internal readonly record struct LogEntry(string Time, string Message, LogKind Kind);
+internal sealed record LogEntry(string Time, string Message, LogKind Kind);
 
-internal readonly record struct Preset(int Value, string Label);
+internal readonly record struct Preset(int Value, string Label, bool IsStartDelay);
 
 internal enum ActionKind
 {
@@ -48,10 +48,10 @@ internal partial class MainViewModel : ObservableObject
     private const double MaximumJitterFraction = 0.35;
     private const double EdgeMarginSeconds = 0.05;
     private const double BurstSpreadSeconds = 8.0;
+    private const double MinimumMinuteShare = 0.5;
     private const int PollIntervalMilliseconds = 250;
     private const int FocusSettleDelayMilliseconds = 800;
-    private const int MaximumLogEntries = 500;
-    private const int LogRetentionDays = 30;
+    private const int MaximumLogEntries = 150;
     private const long AutoPauseGraceMilliseconds = 3_000;
     private const long AutoResumeIdleMilliseconds = 5_000;
     private const string ZeroDuration = "0s";
@@ -60,27 +60,27 @@ internal partial class MainViewModel : ObservableObject
 
     private static readonly Preset[] s_startDelayPresets =
     [
-        new(5, "5s"),
-        new(10, "10s"),
-        new(30, "30s"),
-        new(60, "1m"),
+        new(5, "5s", true),
+        new(10, "10s", true),
+        new(30, "30s", true),
+        new(60, "1m", true),
     ];
 
     private static readonly Preset[] s_durationPresets =
     [
-        new(15, "15m"),
-        new(30, "30m"),
-        new(60, "1h"),
-        new(480, "8h"),
+        new(15, "15m", false),
+        new(30, "30m", false),
+        new(60, "1h", false),
+        new(480, "8h", false),
     ];
 
     // Zero Means The Next Midnight
     private static readonly Preset[] s_clockPresets =
     [
-        new(30, "+30m"),
-        new(60, "+1h"),
-        new(120, "+2h"),
-        new(0, "Midnight"),
+        new(30, "+30m", false),
+        new(60, "+1h", false),
+        new(120, "+2h", false),
+        new(0, "Midnight", false),
     ];
 
     // Hold And Gap Ranges In Milliseconds
@@ -90,10 +90,11 @@ internal partial class MainViewModel : ObservableObject
     private static readonly (int Minimum, int Maximum) s_keyGapMilliseconds = (120, 360);
 
     private readonly Stopwatch _runStopwatch = new();
-    private readonly int[] _sentCounts = new int[3];
+    private readonly int[] _sentCounts = new int[Enum.GetValues<ActionKind>().Length];
     private CancellationTokenSource? _cancellation;
     private double _nextDueSeconds;
-    private string? _runLogFilePath;
+    private int _shownSecond = -1;
+    private int _shownEndMinute = -1;
     private DateTime _runStartedAt;
     private DateTime _stopAt;
     private long _ignoreInputUntilTick;
@@ -288,28 +289,21 @@ internal partial class MainViewModel : ObservableObject
         RunUntilEnabled ? _stopAt - DateTime.Now : DurationFromBoxes - _runStopwatch.Elapsed;
 
     private DateTime EndsAt =>
-        RunUntilEnabled
-            ? IsRunning
-                ? _stopAt
-                : NextStopAt()
+        RunUntilEnabled && !IsRunning
+            ? NextStopAt()
             : DateTime.Now + (IsRunning ? RemainingTime : DurationFromBoxes);
-
-    private (bool Enabled, ushort ScanCode)[] DirectionKeys =>
-        [
-            (ForwardKeyEnabled, InputSimulator.ScanCodeForward),
-            (LeftKeyEnabled, InputSimulator.ScanCodeLeft),
-            (BackwardKeyEnabled, InputSimulator.ScanCodeBackward),
-            (RightKeyEnabled, InputSimulator.ScanCodeRight),
-        ];
 
     public MainViewModel()
     {
         // A Layout Switch Renames Every Key
         InputLanguageManager.Current.InputLanguageChanged += (_, _) =>
+        {
+            InputSimulator.ForgetKeyNames();
             OnPropertyChanged(string.Empty);
+        };
 
         UserActivity.Watch();
-        RunLog.Delete(DateTime.Now.AddDays(-LogRetentionDays));
+        _ = Task.Run(RunLog.DeleteExpired);
         RestoreSettings();
 
         // Restoring Settings Is Not Activity
@@ -347,23 +341,25 @@ internal partial class MainViewModel : ObservableObject
     private void Stop() => Finish("Stopped");
 
     [RelayCommand]
-    private void ApplyStartDelayPreset(int totalSeconds) =>
-        (StartDelayMinutes, StartDelaySeconds) = Math.DivRem(totalSeconds, 60);
-
-    [RelayCommand]
-    private void ApplyDurationPreset(int totalMinutes)
+    private void ApplyPreset(Preset preset)
     {
+        if (preset.IsStartDelay)
+        {
+            (StartDelayMinutes, StartDelaySeconds) = Math.DivRem(preset.Value, 60);
+            return;
+        }
+
         if (RunUntilEnabled)
         {
             ShowClockTime(
-                totalMinutes == 0
+                preset.Value == 0
                     ? DateTime.Today.AddDays(1)
-                    : DateTime.Now.AddMinutes(totalMinutes)
+                    : DateTime.Now.AddMinutes(preset.Value)
             );
             return;
         }
 
-        (DurationHours, DurationMinutes) = Math.DivRem(totalMinutes, 60);
+        (DurationHours, DurationMinutes) = Math.DivRem(preset.Value, 60);
     }
 
     [RelayCommand]
@@ -431,11 +427,18 @@ internal partial class MainViewModel : ObservableObject
             "Later"
         );
 
-        if (openRelease)
+        try
         {
-            Process.Start(
-                new ProcessStartInfo { FileName = update.ReleaseUrl, UseShellExecute = true }
-            );
+            if (openRelease)
+            {
+                Process.Start(
+                    new ProcessStartInfo { FileName = update.ReleaseUrl, UseShellExecute = true }
+                );
+            }
+        }
+        catch
+        {
+            // A Missing Browser Must Not Take The App Down
         }
     }
     #endregion
@@ -445,13 +448,14 @@ internal partial class MainViewModel : ObservableObject
     {
         LogEntries.Clear();
         NoticeMessage = string.Empty;
-        _runLogFilePath = RunLog.NewFilePath();
+        RunLog.Open();
         AppendLog("Started", LogKind.Success);
 
         IsRunning = true;
         IsPaused = false;
         _isAutoPaused = false;
         _nextDueSeconds = 0;
+        (_shownSecond, _shownEndMinute) = (-1, -1);
         Array.Clear(_sentCounts);
         _runStartedAt = DateTime.Now;
         _stopAt = NextStopAt();
@@ -520,7 +524,8 @@ internal partial class MainViewModel : ObservableObject
             );
         }
 
-        _runLogFilePath = null;
+        RunLog.Close();
+        GameWindowFocus.Forget();
     }
 
     private bool TryValidateConfiguration()
@@ -700,7 +705,12 @@ internal partial class MainViewModel : ObservableObject
 
         while (await timer.WaitForNextTickAsync(cancellationToken))
         {
-            UpdateTimeLabels();
+            // The Labels Only Move Once A Second
+            if ((int)_runStopwatch.Elapsed.TotalSeconds != _shownSecond)
+            {
+                _shownSecond = (int)_runStopwatch.Elapsed.TotalSeconds;
+                UpdateTimeLabels();
+            }
 
             // Clock Time Keeps Running While Paused
             if ((RunUntilEnabled || !IsPaused) && RemainingTime <= TimeSpan.Zero)
@@ -731,6 +741,7 @@ internal partial class MainViewModel : ObservableObject
 
     private async Task RunScheduleAsync(CancellationToken cancellationToken)
     {
+        using PeriodicTimer poll = new(TimeSpan.FromMilliseconds(PollIntervalMilliseconds));
         double[] schedule = [];
         var scheduleIndex = 0;
         var scheduledMinute = -1;
@@ -759,7 +770,7 @@ internal partial class MainViewModel : ObservableObject
             if (IsPaused || !isDue)
             {
                 // Short Hops Keep Pause And Stop Responsive
-                await Task.Delay(PollIntervalMilliseconds, cancellationToken);
+                await poll.WaitForNextTickAsync(cancellationToken);
                 continue;
             }
 
@@ -785,6 +796,18 @@ internal partial class MainViewModel : ObservableObject
 
     private double[] CreateMinuteSchedule(int simulationsPerMinute)
     {
+        // A Human Minute Is Never Exactly Like The Last
+        if (RandomizeIntervalsEnabled)
+        {
+            simulationsPerMinute = Math.Max(
+                1,
+                (int)
+                    Math.Round(
+                        simulationsPerMinute * (MinimumMinuteShare + Random.Shared.NextDouble())
+                    )
+            );
+        }
+
         if (BurstActivityEnabled)
         {
             return CreateBurstSchedule(simulationsPerMinute);
@@ -843,14 +866,13 @@ internal partial class MainViewModel : ObservableObject
 
     private async Task ExecuteSimulationAsync(CancellationToken cancellationToken)
     {
+        var gameKey = PreferredGameKey;
+
         // Input Only Reaches The Game
-        if (
-            SwitchToGameEnabled
-            && (PreferredGameKey is not { } gameKey || !GameWindowFocus.IsForeground(gameKey))
-        )
+        if (SwitchToGameEnabled && !GameWindowFocus.IsForeground())
         {
             // A Closed Game Ends The Run
-            if (PreferredGameKey is { } targetKey && !GameWindowFocus.IsRunning(targetKey))
+            if (gameKey is not null && !GameWindowFocus.IsRunning())
             {
                 Finish("Stopped Game Closed", LogKind.Warning);
                 return;
@@ -861,17 +883,20 @@ internal partial class MainViewModel : ObservableObject
         }
 
         var actions = BuildActions();
+        var actionCount = actions.Length;
 
-        if (RandomizeSimulationEnabled && actions.Length > 1)
+        if (RandomizeSimulationEnabled && actionCount > 1)
         {
             // A Different Slice Runs Each Time
             Random.Shared.Shuffle(actions);
-            actions = actions[..InputSimulator.RandomInRange((1, actions.Length))];
+            actionCount = InputSimulator.RandomInRange((1, actionCount));
         }
 
-        foreach (var action in actions)
+        for (var index = 0; index < actionCount; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            var action = actions[index];
 
             AppendLog(action.LogMessage, LogKind.Input);
             await action.RunAsync(cancellationToken);
@@ -884,20 +909,52 @@ internal partial class MainViewModel : ObservableObject
         }
     }
 
-    private SimulationAction[] BuildActions() =>
-        [
-            .. DirectionKeys
-                .Where(key => key.Enabled)
-                .Select(key => KeyAction(InputSimulator.FromScanCode(key.ScanCode))),
-            .. (
-                CustomKeyEnabled
-                    ? new[] { KeyAction(InputSimulator.FromVirtualKey(CustomKeyVirtualKey)) }
-                    : []
-            ),
-            .. (MouseLeftClickEnabled ? new[] { ClickAction(isRightButton: false) } : []),
-            .. (MouseRightClickEnabled ? new[] { ClickAction(isRightButton: true) } : []),
-            .. (MouseMovementEnabled ? new[] { MoveAction() } : []),
-        ];
+    private SimulationAction[] BuildActions()
+    {
+        List<SimulationAction> actions = [];
+
+        if (ForwardKeyEnabled)
+        {
+            actions.Add(KeyAction(InputSimulator.FromScanCode(InputSimulator.ScanCodeForward)));
+        }
+
+        if (LeftKeyEnabled)
+        {
+            actions.Add(KeyAction(InputSimulator.FromScanCode(InputSimulator.ScanCodeLeft)));
+        }
+
+        if (BackwardKeyEnabled)
+        {
+            actions.Add(KeyAction(InputSimulator.FromScanCode(InputSimulator.ScanCodeBackward)));
+        }
+
+        if (RightKeyEnabled)
+        {
+            actions.Add(KeyAction(InputSimulator.FromScanCode(InputSimulator.ScanCodeRight)));
+        }
+
+        if (CustomKeyEnabled)
+        {
+            actions.Add(KeyAction(InputSimulator.FromVirtualKey(CustomKeyVirtualKey)));
+        }
+
+        if (MouseLeftClickEnabled)
+        {
+            actions.Add(ClickAction(isRightButton: false));
+        }
+
+        if (MouseRightClickEnabled)
+        {
+            actions.Add(ClickAction(isRightButton: true));
+        }
+
+        if (MouseMovementEnabled)
+        {
+            actions.Add(MoveAction());
+        }
+
+        return [.. actions];
+    }
 
     private SimulationAction KeyAction(SimulatedKey key) =>
         new(
@@ -982,8 +1039,14 @@ internal partial class MainViewModel : ObservableObject
 
         ElapsedLabel = FormatDuration(elapsed);
         RemainingLabel = FormatDuration(RemainingTime);
-        OnPropertyChanged(nameof(EndsAtLabel));
         OnPropertyChanged(nameof(NextActionLabel));
+
+        // The End Time Only Moves When Its Minute Does
+        if (EndsAt.Minute != _shownEndMinute)
+        {
+            _shownEndMinute = EndsAt.Minute;
+            OnPropertyChanged(nameof(EndsAtLabel));
+        }
 
         // Clock Mode Measures Progress In Wall Time
         var totalTime = RunUntilEnabled ? _stopAt - _runStartedAt : DurationFromBoxes;
@@ -1016,16 +1079,16 @@ internal partial class MainViewModel : ObservableObject
     {
         var now = DateTime.Now;
 
-        LogEntries.Add(new LogEntry($"{now:HH:mm:ss}", message, kind));
+        LogEntries.Add(new LogEntry(now.ToString("HH:mm:ss"), message, kind));
 
         if (LogEntries.Count > MaximumLogEntries)
         {
             LogEntries.RemoveAt(0);
         }
 
-        if (_runLogFilePath is not null)
+        if (RunLog.IsOpen)
         {
-            RunLog.AppendLine(_runLogFilePath, $"{now:HH:mm:ss.fff}   {message}");
+            RunLog.AppendLine($"{now:HH:mm:ss.fff}   {message}");
         }
     }
 
@@ -1056,7 +1119,7 @@ internal partial class MainViewModel : ObservableObject
     private void LogToggle(string featureName, bool isEnabled) =>
         AppendLog($"{(isEnabled ? "Enabled" : "Disabled")} {featureName}");
 
-    private void LogRandomizeToggle(string featureName, bool isEnabled)
+    private void WarnOnRandomizeToggle(string featureName, bool isEnabled)
     {
         LogToggle(featureName, isEnabled);
 
@@ -1073,10 +1136,10 @@ internal partial class MainViewModel : ObservableObject
     partial void OnSwitchToGameEnabledChanged(bool value) => LogToggle("Switch To Game", value);
 
     partial void OnRandomizeSimulationEnabledChanged(bool value) =>
-        LogRandomizeToggle("Randomize Simulation", value);
+        WarnOnRandomizeToggle("Randomize Simulation", value);
 
     partial void OnRandomizeIntervalsEnabledChanged(bool value) =>
-        LogRandomizeToggle("Randomize Intervals", value);
+        WarnOnRandomizeToggle("Randomize Intervals", value);
 
     partial void OnHoldKeysEnabledChanged(bool value) => LogToggle("Hold Keys Longer", value);
 

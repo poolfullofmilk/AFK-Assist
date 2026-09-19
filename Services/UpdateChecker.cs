@@ -1,5 +1,4 @@
 using System.Net.Http;
-using System.Reflection;
 
 namespace AFK_Assist.Services;
 
@@ -16,14 +15,17 @@ internal static class UpdateChecker
     };
 
     public static Version CurrentVersion { get; } =
-        Assembly.GetExecutingAssembly().GetName().Version!;
+        typeof(UpdateChecker).Assembly.GetName().Version!;
 
     public static async Task<(Version Latest, string ReleaseUrl)?> CheckAsync()
     {
         try
         {
             // The Latest Release Url Redirects To The Tagged Release
-            using var response = await s_httpClient.GetAsync(LatestReleaseUrl);
+            using var response = await s_httpClient.GetAsync(
+                LatestReleaseUrl,
+                HttpCompletionOption.ResponseHeadersRead
+            );
             var location = response.Headers.Location?.ToString() ?? string.Empty;
             var tag = location[(location.LastIndexOf('/') + 1)..].TrimStart('v', 'V');
 

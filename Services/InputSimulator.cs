@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace AFK_Assist.Services;
@@ -31,6 +32,16 @@ internal static partial class InputSimulator
     private const int BoundsMarginPixels = 40;
     private const int SmallestBoundsPixels = 200;
 
+    // Shape Of The Random Draws
+    private const double LogNormalSpread = 0.45;
+    private const double LogNormalMedianShare = 0.35;
+    private const double HorizontalSpreadRadians = 0.5;
+    private const double AnyDirectionChance = 0.2;
+    private const double ReturnChance = 0.6;
+    private const double ReturnOffsetPixels = 25;
+    private const double TremorShare = 0.12;
+    private const double HesitationChance = 0.04;
+
     // Natural Mouse Movement Ranges
     private static readonly (int Minimum, int Maximum) s_outwardSlideCount = (1, 4);
     private static readonly (int Minimum, int Maximum) s_slidePixels = (60, 1200);
@@ -38,7 +49,6 @@ internal static partial class InputSimulator
     private static readonly (int Minimum, int Maximum) s_pixelsPerStep = (3, 9);
     private static readonly (int Minimum, int Maximum) s_slidePauseMilliseconds = (80, 900);
     private static readonly (int Minimum, int Maximum) s_hesitationMilliseconds = (30, 160);
-    private static readonly (int Minimum, int Maximum) s_returnOffsetPixels = (-60, 60);
 
     // Short Names For Keys Too Long For Their Label
     private static readonly Dictionary<ushort, string> s_shortKeyNames = new()
@@ -51,6 +61,8 @@ internal static partial class InputSimulator
         [0x90] = "NumLk",
         [0x91] = "ScrLk",
     };
+
+    private static readonly Dictionary<SimulatedKey, string> s_keyNames = [];
 
     public static SimulatedKey FromScanCode(ushort scanCode) =>
         new((ushort)MapVirtualKeyW(scanCode, MapScanCodeToVirtualKey), scanCode, false);
@@ -69,6 +81,11 @@ internal static partial class InputSimulator
             return shortName;
         }
 
+        if (s_keyNames.TryGetValue(key, out var cachedName))
+        {
+            return cachedName;
+        }
+
         var buffer = new char[64];
 
         // Windows Names Keys The Way The Keyboard Prints Them
@@ -78,15 +95,30 @@ internal static partial class InputSimulator
             buffer.Length
         );
 
-        return length > 0 ? new string(buffer, 0, length) : $"Key {key.VirtualKey}";
+        return s_keyNames[key] = length > 0 ? new string(buffer, 0, length) : $"#{key.VirtualKey}";
     }
+
+    public static void ForgetKeyNames() => s_keyNames.Clear();
 
     public static int RandomInRange((int Minimum, int Maximum) range)
     {
-        // Averaged Draws Cluster Near The Middle Like Hands
-        var spread = (Random.Shared.NextDouble() + Random.Shared.NextDouble()) / 2;
+        // Human Gaps Skew Right With A Long Tail
+        var share = Math.Clamp(
+            Math.Exp(NextGaussian() * LogNormalSpread) * LogNormalMedianShare,
+            0,
+            1
+        );
 
-        return range.Minimum + (int)Math.Round(spread * (range.Maximum - range.Minimum));
+        return range.Minimum + (int)Math.Round(share * (range.Maximum - range.Minimum));
+    }
+
+    private static double NextGaussian()
+    {
+        // Box Muller Turns Two Uniforms Into A Bell
+        var first = 1 - Random.Shared.NextDouble();
+        var second = Random.Shared.NextDouble();
+
+        return Math.Sqrt(-2 * Math.Log(first)) * Math.Cos(Math.Tau * second);
     }
 
     public static Task PressKeyAsync(SimulatedKey key, int holdMilliseconds) =>
@@ -113,10 +145,12 @@ internal static partial class InputSimulator
 
         for (var slidesLeft = RandomInRange(s_outwardSlideCount); slidesLeft > 0; slidesLeft--)
         {
-            // Mostly Sideways Like Looking Around
+            // Mostly Sideways But Never Only Sideways
             var angle =
-                ((Random.Shared.NextDouble() - 0.5) * 2 * Math.PI / 3)
-                + (Random.Shared.Next(2) * Math.PI);
+                Random.Shared.NextDouble() < AnyDirectionChance
+                    ? Random.Shared.NextDouble() * Math.Tau
+                    : (NextGaussian() * HorizontalSpreadRadians)
+                        + (Random.Shared.Next(2) * Math.PI);
 
             // Distances Swing From A Flick To A Sweep
             var distance = Random.Shared.Next(s_slidePixels.Minimum, s_slidePixels.Maximum + 1);
@@ -126,21 +160,27 @@ internal static partial class InputSimulator
                 bounds
             );
 
-            await SlideMouseAsync(deltaX, deltaY, cancellationToken);
-            await Task.Delay(RandomInRange(s_slidePauseMilliseconds), cancellationToken);
+            await SlideMouseAsync(deltaX, deltaY, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(RandomInRange(s_slidePauseMilliseconds), cancellationToken)
+                .ConfigureAwait(false);
 
             travelledX += deltaX;
             travelledY += deltaY;
         }
 
-        // Drift Back Near Where It Started
+        // A Hand Wanders Back Only Sometimes
+        if (Random.Shared.NextDouble() >= ReturnChance)
+        {
+            return;
+        }
+
         var (returnX, returnY) = KeepInside(
-            -travelledX + RandomInRange(s_returnOffsetPixels),
-            -travelledY + RandomInRange(s_returnOffsetPixels),
+            -travelledX + (NextGaussian() * ReturnOffsetPixels),
+            -travelledY + (NextGaussian() * ReturnOffsetPixels),
             bounds
         );
 
-        await SlideMouseAsync(returnX, returnY, cancellationToken);
+        await SlideMouseAsync(returnX, returnY, cancellationToken).ConfigureAwait(false);
     }
 
     private static (double DeltaX, double DeltaY) KeepInside(
@@ -179,7 +219,7 @@ internal static partial class InputSimulator
         send(false);
 
         // Never Cancelled So Nothing Stays Held Down
-        await Task.Delay(holdMilliseconds);
+        await Task.Delay(holdMilliseconds).ConfigureAwait(false);
         send(true);
     }
 
@@ -198,6 +238,7 @@ internal static partial class InputSimulator
                 MaximumSlideSteps
             );
         var stepMilliseconds = RandomInRange(s_slideMilliseconds) / (double)stepCount;
+        var stepPixels = distance / stepCount;
 
         // A Bend Near Each End Shapes The Whole Curve
         var firstBend = RandomBend();
@@ -216,29 +257,32 @@ internal static partial class InputSimulator
                 (firstWeight / 3) + (2 * secondWeight / 3) + (travelled * travelled * travelled);
             var sideways = (firstWeight * firstBend) + (secondWeight * secondBend);
 
-            // Hand Tremor On Every Step Except The Landing
-            var tremor = stepIndex < stepCount ? 1 : 0;
-            var pointX =
-                (int)Math.Round((deltaX * forward) - (deltaY * sideways))
-                + Random.Shared.Next(-tremor, tremor + 1);
-            var pointY =
-                (int)Math.Round((deltaY * forward) + (deltaX * sideways))
-                + Random.Shared.Next(-tremor, tremor + 1);
+            // Sensor Noise Grows With Speed And Stops At The Landing
+            var tremor = stepIndex < stepCount ? stepPixels * TremorShare : 0;
+            var pointX = (int)
+                Math.Round((deltaX * forward) - (deltaY * sideways) + (NextGaussian() * tremor));
+            var pointY = (int)
+                Math.Round((deltaY * forward) + (deltaX * sideways) + (NextGaussian() * tremor));
 
             SendMouse(MouseEventMove, pointX - sentX, pointY - sentY);
             sentX = pointX;
             sentY = pointY;
 
-            // A Hand Hesitates Now And Then
-            if (Random.Shared.NextDouble() < 0.02)
+            // Hands Pause Mid Sweep Not At The Ends
+            if (travelled is > 0.25 and < 0.75 && Random.Shared.NextDouble() < HesitationChance)
             {
-                await Task.Delay(RandomInRange(s_hesitationMilliseconds), cancellationToken);
+                await Task.Delay(RandomInRange(s_hesitationMilliseconds), cancellationToken)
+                    .ConfigureAwait(false);
             }
 
             await Task.Delay(
-                Math.Max(1, (int)Math.Round(stepMilliseconds * (0.5 + Random.Shared.NextDouble()))),
-                cancellationToken
-            );
+                    Math.Max(
+                        1,
+                        (int)Math.Round(stepMilliseconds * (0.5 + Random.Shared.NextDouble()))
+                    ),
+                    cancellationToken
+                )
+                .ConfigureAwait(false);
         }
     }
 
@@ -295,9 +339,9 @@ internal static partial class InputSimulator
 
     private static void Send(ref Input input)
     {
-        if (SendInput(1, ref input, Marshal.SizeOf<Input>()) != 1)
+        if (SendInput(1, ref input, Unsafe.SizeOf<Input>()) != 1)
         {
-            throw new Win32Exception(Marshal.GetLastWin32Error());
+            throw new Win32Exception(Marshal.GetLastPInvokeError());
         }
     }
 

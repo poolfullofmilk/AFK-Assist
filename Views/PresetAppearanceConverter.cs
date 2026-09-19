@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Windows.Data;
+using AFK_Assist.ViewModels;
 using Wpf.Ui.Controls;
 
 namespace AFK_Assist.Views;
@@ -13,7 +14,11 @@ internal sealed class PresetAppearanceConverter : IMultiValueConverter
         Type targetType,
         object parameter,
         CultureInfo culture
-    ) => Equals(values[0], values[1]) ? ControlAppearance.Primary : ControlAppearance.Secondary;
+    ) =>
+        values[0] is Preset preset
+        && Equals(preset.Value, preset.IsStartDelay ? values[1] : values[2])
+            ? ControlAppearance.Primary
+            : ControlAppearance.Secondary;
 
     public object[] ConvertBack(
         object value,
