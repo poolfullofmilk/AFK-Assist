@@ -26,13 +26,19 @@ internal static partial class InputSimulator
     private const uint MouseEventRightDown = 0x0008;
     private const uint MouseEventRightUp = 0x0010;
 
+    private const int MinimumSlideSteps = 24;
+    private const int MaximumSlideSteps = 320;
+    private const int BoundsMarginPixels = 40;
+    private const int SmallestBoundsPixels = 200;
+
     // Natural Mouse Movement Ranges
-    private static readonly (int Minimum, int Maximum) s_outwardSlideCount = (1, 3);
-    private static readonly (int Minimum, int Maximum) s_slidePixels = (250, 800);
-    private static readonly (int Minimum, int Maximum) s_slideSteps = (25, 60);
-    private static readonly (int Minimum, int Maximum) s_stepMilliseconds = (6, 14);
-    private static readonly (int Minimum, int Maximum) s_slidePauseMilliseconds = (150, 600);
-    private static readonly (int Minimum, int Maximum) s_returnOffsetPixels = (-40, 40);
+    private static readonly (int Minimum, int Maximum) s_outwardSlideCount = (1, 4);
+    private static readonly (int Minimum, int Maximum) s_slidePixels = (60, 1200);
+    private static readonly (int Minimum, int Maximum) s_slideMilliseconds = (140, 900);
+    private static readonly (int Minimum, int Maximum) s_pixelsPerStep = (3, 9);
+    private static readonly (int Minimum, int Maximum) s_slidePauseMilliseconds = (80, 900);
+    private static readonly (int Minimum, int Maximum) s_hesitationMilliseconds = (30, 160);
+    private static readonly (int Minimum, int Maximum) s_returnOffsetPixels = (-60, 60);
 
     // Short Names For Keys Too Long For Their Label
     private static readonly Dictionary<ushort, string> s_shortKeyNames = new()
@@ -97,7 +103,10 @@ internal static partial class InputSimulator
             holdMilliseconds
         );
 
-    public static async Task MoveMouseNaturallyAsync(CancellationToken cancellationToken)
+    public static async Task MoveMouseNaturallyAsync(
+        WindowBounds? bounds,
+        CancellationToken cancellationToken
+    )
     {
         var travelledX = 0.0;
         var travelledY = 0.0;
@@ -106,11 +115,16 @@ internal static partial class InputSimulator
         {
             // Mostly Sideways Like Looking Around
             var angle =
-                ((Random.Shared.NextDouble() - 0.5) * Math.PI / 3)
+                ((Random.Shared.NextDouble() - 0.5) * 2 * Math.PI / 3)
                 + (Random.Shared.Next(2) * Math.PI);
-            var distance = RandomInRange(s_slidePixels);
-            var deltaX = Math.Cos(angle) * distance;
-            var deltaY = Math.Sin(angle) * distance;
+
+            // Distances Swing From A Flick To A Sweep
+            var distance = Random.Shared.Next(s_slidePixels.Minimum, s_slidePixels.Maximum + 1);
+            var (deltaX, deltaY) = KeepInside(
+                Math.Cos(angle) * distance,
+                Math.Sin(angle) * distance,
+                bounds
+            );
 
             await SlideMouseAsync(deltaX, deltaY, cancellationToken);
             await Task.Delay(RandomInRange(s_slidePauseMilliseconds), cancellationToken);
@@ -120,11 +134,44 @@ internal static partial class InputSimulator
         }
 
         // Drift Back Near Where It Started
-        await SlideMouseAsync(
+        var (returnX, returnY) = KeepInside(
             -travelledX + RandomInRange(s_returnOffsetPixels),
             -travelledY + RandomInRange(s_returnOffsetPixels),
-            cancellationToken
+            bounds
         );
+
+        await SlideMouseAsync(returnX, returnY, cancellationToken);
+    }
+
+    private static (double DeltaX, double DeltaY) KeepInside(
+        double deltaX,
+        double deltaY,
+        WindowBounds? bounds
+    )
+    {
+        if (
+            bounds is not { } window
+            || window.Right - window.Left < SmallestBoundsPixels
+            || window.Bottom - window.Top < SmallestBoundsPixels
+            || !GetCursorPos(out var cursor)
+        )
+        {
+            return (deltaX, deltaY);
+        }
+
+        // Cursor Stays Inside The Focused Window
+        var landingX = Math.Clamp(
+            cursor.X + deltaX,
+            window.Left + BoundsMarginPixels,
+            window.Right - BoundsMarginPixels
+        );
+        var landingY = Math.Clamp(
+            cursor.Y + deltaY,
+            window.Top + BoundsMarginPixels,
+            window.Bottom - BoundsMarginPixels
+        );
+
+        return (landingX - cursor.X, landingY - cursor.Y);
     }
 
     private static async Task HoldAsync(Action<bool> send, int holdMilliseconds)
@@ -142,35 +189,68 @@ internal static partial class InputSimulator
         CancellationToken cancellationToken
     )
     {
-        var stepCount = RandomInRange(s_slideSteps);
-        var bow = (Random.Shared.NextDouble() - 0.5) * 0.4;
+        // Short Steps Keep The Path Smooth
+        var distance = Math.Sqrt((deltaX * deltaX) + (deltaY * deltaY));
+        var stepCount = (int)
+            Math.Clamp(
+                distance / RandomInRange(s_pixelsPerStep),
+                MinimumSlideSteps,
+                MaximumSlideSteps
+            );
+        var stepMilliseconds = RandomInRange(s_slideMilliseconds) / (double)stepCount;
+
+        // A Bend Near Each End Shapes The Whole Curve
+        var firstBend = RandomBend();
+        var secondBend = RandomBend();
+        var sharpness = 1.5 + (Random.Shared.NextDouble() * 1.5);
         var sentX = 0;
         var sentY = 0;
 
         for (var stepIndex = 1; stepIndex <= stepCount; stepIndex++)
         {
-            var progress = (double)stepIndex / stepCount;
-
-            // Ease In And Out Along A Slight Curve
-            var eased = progress * progress * (3 - (2 * progress));
-            var curve = Math.Sin(progress * Math.PI) * bow;
+            var travelled = Ease((double)stepIndex / stepCount, sharpness);
+            var rest = 1 - travelled;
+            var firstWeight = 3 * rest * rest * travelled;
+            var secondWeight = 3 * rest * travelled * travelled;
+            var forward =
+                (firstWeight / 3) + (2 * secondWeight / 3) + (travelled * travelled * travelled);
+            var sideways = (firstWeight * firstBend) + (secondWeight * secondBend);
 
             // Hand Tremor On Every Step Except The Landing
             var tremor = stepIndex < stepCount ? 1 : 0;
             var pointX =
-                (int)Math.Round((deltaX * eased) - (deltaY * curve))
+                (int)Math.Round((deltaX * forward) - (deltaY * sideways))
                 + Random.Shared.Next(-tremor, tremor + 1);
             var pointY =
-                (int)Math.Round((deltaY * eased) + (deltaX * curve))
+                (int)Math.Round((deltaY * forward) + (deltaX * sideways))
                 + Random.Shared.Next(-tremor, tremor + 1);
 
             SendMouse(MouseEventMove, pointX - sentX, pointY - sentY);
             sentX = pointX;
             sentY = pointY;
 
-            await Task.Delay(RandomInRange(s_stepMilliseconds), cancellationToken);
+            // A Hand Hesitates Now And Then
+            if (Random.Shared.NextDouble() < 0.02)
+            {
+                await Task.Delay(RandomInRange(s_hesitationMilliseconds), cancellationToken);
+            }
+
+            await Task.Delay(
+                Math.Max(1, (int)Math.Round(stepMilliseconds * (0.5 + Random.Shared.NextDouble()))),
+                cancellationToken
+            );
         }
     }
+
+    private static double Ease(double progress, double sharpness)
+    {
+        // Slow Start Fast Middle Soft Landing
+        var accelerated = Math.Pow(progress, sharpness);
+
+        return accelerated / (accelerated + Math.Pow(1 - progress, sharpness));
+    }
+
+    private static double RandomBend() => (Random.Shared.NextDouble() - 0.5) * 0.3;
 
     private static void SendKey(SimulatedKey key, bool isRelease)
     {
@@ -264,6 +344,17 @@ internal static partial class InputSimulator
 
     [LibraryImport("user32.dll")]
     private static partial uint MapVirtualKeyW(uint code, uint mapType);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetCursorPos(out CursorPoint point);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CursorPoint
+    {
+        public int X;
+        public int Y;
+    }
 
     [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
     private static partial int GetKeyNameTextW(int keyParameter, [Out] char[] buffer, int size);

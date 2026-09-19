@@ -52,7 +52,7 @@ Do not reach for `PublishTrimmed` or Native AOT. WPF is not trim-safe and is uns
 
 `<AssemblyName>`, `<RootNamespace>`, `<Product>` and `<Company>` are not in the project because the SDK defaults already produce `AFK Assist` and `AFK_Assist`.
 
-`<Version>` is the release version with two parts, currently `1.1`, tagged `v1.1`. `UpdateChecker.CurrentVersion` reads it back through `Assembly.GetName().Version`, which pads it to `1.1.0.0`; the `v1.1` tag parses as `1.1`, which sorts below `1.1.0.0` because unset parts count as lower, so a release never flags itself. Dialogs print two parts. A tag without a minor part, like the old `v1`, does not parse at all. Bump `<Version>` together with the release tag.
+`<Version>` is the release version with two parts, currently `1.2`, tagged `v1.2`. `UpdateChecker.CurrentVersion` reads it back through `Assembly.GetName().Version`, which pads it to `1.2.0.0`; the `v1.2` tag parses as `1.2`, which sorts below `1.2.0.0` because unset parts count as lower, so a release never flags itself. Dialogs print two parts. A tag without a minor part, like the old `v1`, does not parse at all. Bump `<Version>` together with the release tag.
 
 `DebugType` is `embedded`, so symbols ride inside the single file and Debug builds keep them.
 
@@ -108,9 +108,13 @@ The deliberate exceptions:
 - **Run For** finishes when the stopwatch passes the Hours and Minutes boxes. Pauses stop the stopwatch, so paused time does not count.
 - **Run Until** reuses the same two boxes as a clock time. `_stopAt` is captured at `Start` and recaptured whenever the boxes change, never recomputed per tick: the next occurrence of a clock time rolls to tomorrow the instant it passes, and a per-tick lookup would never finish. Clock time keeps running while paused, so this mode can finish during a pause. Flipping the switch converts the boxes, rounding a clock time up and a duration down so flipping back and forth is stable.
 - **Pause** unlocks every card through `CanEditConfiguration`. Nothing is captured at `Start` that an edit would miss: the clock reads the boxes each tick, the schedule rebuilds on a speed change and keys are built per simulation. Resume re-validates first.
-- **Auto pause** happens when `UserActivity.LastInputTick` moves past `_ignoreInputUntilTick`, a 3 s grace set whenever the clock starts or a resume happens. **Auto resume** happens after 60 s without input, and only for an auto pause; a manual pause stays paused.
+- **Auto pause** happens when `UserActivity.LastInputTick` moves past `_ignoreInputUntilTick`, a 3 s grace set whenever the clock starts or a resume happens. **Auto resume** happens after 5 s without input, and only for an auto pause; a manual pause stays paused.
 
 The Elapsed and Remaining labels hide leading units that are zero and pad nothing: `5s`, `3m 12s`, `1h 0m 12s`. Seconds always show.
+
+`EndsAtLabel` reads `Ends At 18h20` under the run mode switch, in both modes: the captured `_stopAt` in Run Until, the clock plus the remaining time in Run For. It refreshes every tick while a run is on, and on an edit while it is off. `NextActionLabel` counts down to `_nextDueSeconds` beside the Activity header, and is empty until the schedule loop sets it.
+
+A run that finds its game gone, rather than merely unfocused, ends itself with `Stopped Game Closed`. `Finish` then logs one `Sent ... Keys ... Clicks ... Moves In ...` line from `_sentCounts`, which `Start` clears.
 
 ## Input Injection
 
@@ -127,7 +131,7 @@ Setting only one breaks half the games. Do not go back to `keybd_event`.
 
 **Key names** come from `GetKeyNameTextW` with the scan code and extended bit, so labels read `W`, `Left`, `1` and `F9` in the active layout instead of `KeyInterop` names like `D1` or `OemTilde`. Names too long for the custom key row (`Caps Lock`, `Page Up`, `Backspace`, ...) are replaced by keycap short names from `s_shortKeyNames`, keyed by virtual key because layout names are localized. The checkbox text also trims with an ellipsis for anything unlisted.
 
-**Movement** is one to three outward relative slides of 250–800 px, kept within 30° of horizontal like looking around, then one slide back near the start. Each slide is 25–60 steps of smoothstep easing along a slight bow, with a pixel of tremor on every step except the last, random step timing and pauses. It cancels on Stop; nothing can get stuck.
+**Movement** is one to four outward relative slides of 60–1200 px, kept within 60° of horizontal like looking around, then one slide back near the start. Each slide follows a cubic curve with a random bend near each end, walked in 3–9 px steps, so a long sweep gets hundreds of them. `Ease` shapes the speed with a random sharpness, every step's delay is jittered around the slide's own duration, a pixel of tremor lands on all but the last step, and a step occasionally hesitates. `Task.Delay` resolves to about a millisecond on .NET 8 and later, which is what makes the fine steps worth sending. Every slide is clamped by `KeepInside` to the foreground window's rectangle less a margin, so the cursor never wanders onto another monitor or the taskbar; a window too small to hold the margin is left alone. It cancels on Stop; nothing can get stuck.
 
 `RandomInRange` is the one inclusive random helper for every `(Minimum, Maximum)` tuple in the app. It averages two draws, so values cluster in the middle of the range the way human timing does instead of spreading flat to hard edges. `CreateMinuteSchedule` jitters the same way.
 
@@ -154,12 +158,14 @@ The hooks are never uninstalled. Windows removes them when the process exits.
 ## Switch To Game
 
 - **Picker.** The combo box binds `AvailableGames`, a list of process key → display name pairs, with `DisplayMemberPath="Value"`, `SelectedValuePath="Key"` and `SelectedValue` on `SelectedGameKey`. An empty key is Automatic. Settings store the key, never the display name. A key restored before the scan finishes waits inside the combo box until its item arrives; one that never arrives falls back to Automatic in `LoadAvailableGamesAsync`.
-- **Focus.** `GameWindowFocus.TryFocusGameWindow` finds the picked game, or with Automatic the first running process whose key the scanner knows, foregrounds it and returns that key. Foregrounding needs `BringWindowToTop` plus `SetForegroundWindow`, retried inside `AttachThreadInput` when Windows refuses; leave it alone unless tested against a real game.
+- **Focus.** `GameWindowFocus.TryFocusGameWindow` finds the picked game, or with Automatic the first running process whose key the scanner knows, foregrounds it and returns that key. A minimised game is restored with `SW_RESTORE`, never forced to maximise. Foregrounding needs `BringWindowToTop` plus `SetForegroundWindow`, retried inside `AttachThreadInput` when Windows refuses; leave it alone unless tested against a real game.
 - **Pre-select.** With Automatic, `FocusGame` pins the found key into `SelectedGameKey` and sets `_isGameAutoSelected`. `Finish` puts Automatic back, `SaveSettings` never persists a pinned game, and any user pick clears the flag through `OnSelectedGameKeyChanged`.
 - **Guard.** `ExecuteSimulationAsync` skips the whole simulation and logs `Skipped Game Not Focused` unless `GameWindowFocus.IsForeground` matches the target. With Automatic and no game found there is no target, so nothing is sent.
 - With the toggle off, input goes to whatever window has focus.
 
 ## Scheduling
+
+With Burst Activity on, `CreateBurstSchedule` drops one to three burst starts anywhere in the minute and scatters the actions around them inside `BurstSpreadSeconds`, then sorts, so quiet stretches sit between clusters instead of an even beat. The count per minute is still exact.
 
 `CreateMinuteSchedule` on the view model gives each action a slot and places it at the slot start plus up to ±35% of a slot width, clamped inside the minute. The count per minute is exact. Slots never overlap, because the latest point of one slot sits 30% of a slot before the earliest point of the next, so the array needs no sort. With Randomize Intervals off the jitter is zero.
 
@@ -204,7 +210,7 @@ The scan runs once per process, well under a second. Games installed while the a
 
 `RunLog` writes `Documents\AFK Assist\Logs\Run yyyy-MM-dd HH-mm-ss.txt`, one line per `AppendLog` so a crash still leaves the run on disk. The file keeps milliseconds; the screen shows seconds. The constructor deletes files older than `LogRetentionDays`, Clear Log Files deletes all of them, and every call swallows its exceptions.
 
-`UserSettings` is a record with `Load` and `Save` on it, because the record is what gets loaded and saved. It writes `%AppData%\AFK Assist\settings.json` from the window's `Closing` handler. Missing properties in an older file fall back to their defaults. `RestoreSettings` clamps every number to the same limits the window uses, sets Run Until before the boxes because the mode converts them, and the constructor clears the log afterwards because restoring is not activity.
+`UserSettings` is a record with `Load` and `Save` on it, because the record is what gets loaded and saved. It holds everything the window shows, plus the window's own spot, and it writes `%AppData%\AFK Assist\settings.json` from the window's `Closing` handler. `WindowLeft` and `WindowTop` are plain view model properties rather than bound ones; the window fills them in on close and reads them back in its constructor, and a spot whose title bar centre no longer lands on a monitor falls back to `CenterScreen`. Missing properties in an older file fall back to their defaults. `RestoreSettings` clamps every number to the same limits the window uses, sets Run Until before the boxes because the mode converts them, and the constructor clears the log afterwards because restoring is not activity.
 
 ## UI Conventions
 
@@ -214,10 +220,10 @@ Control ladder, first rung that works wins: a WPF-UI control (`ui:Card`, `ui:But
 
 XAML: `<!-- Name -->` comments above a group, naming its main element only. One attribute per line, aligned under the first.
 
-- **Layout.** Mouse and Keyboard checkboxes sit in the Input card, every on/off behaviour is a toggle in the Options card, and each card holds values. The Input card and the Options card both have five rows so their shared row has no empty band.
-- **Run mode** is a `ui:ToggleSwitch` between two labels, `Run For` and `Run Until`, at the bottom of the Duration card.
+- **Layout.** Mouse and Keyboard checkboxes sit in the Input card, Move Mouse among the mouse ones, and every on/off behaviour is a toggle in the Options card. The Keyboard column's five rows set the shared row's height, and the Options card stretches to it.
+- **Run mode** is a `ui:ToggleSwitch` between two labels, `Run For` and `Run Until`, at the bottom of the Duration card, with `EndsAtLabel` right-aligned in the same row.
 - **Limits** are `public const double` on `MainViewModel`, bound with `{x:Static}`. Only the Hours maximum is a binding, because it switches between 8 and 23 with the run mode. `RestoreSettings` clamps against the same constants.
-- **Presets** are `Preset` value and label pairs in the static `StartDelayPresets` and `DurationPresets` arrays, each shown by an `ItemsControl` of chips. A chip's `Appearance` is a `MultiBinding` of its value and `StartDelayTotalSeconds` or `DurationTotalMinutes` through `PresetAppearanceConverter`, and its command reaches the view model through the `ItemsControl`'s `DataContext`. `DurationTotalMinutes` is `-1` in Run Until mode so no chip lights up there.
+- **Presets** are `Preset` value and label pairs, each shown by an `ItemsControl` of chips. `StartDelayPresets` is fixed; `DurationPresets` swaps with the run mode, from durations to clock jumps where `0` means the next midnight. A chip's `Appearance` is a `MultiBinding` of its value and `StartDelayTotalSeconds` or `DurationTotalMinutes` through `PresetAppearanceConverter`, and its command reaches the view model through the `ItemsControl`'s `DataContext`. `DurationTotalMinutes` is `-1` in Run Until mode so no chip lights up there.
 - **Tooltips** only on the icon-only update button, where it is the label. Every unlabelled input carries `AutomationProperties.Name`.
 - **UI text** is short Title Case with no ending punctuation. Units are one letter hugging the number (`15m`, `3m 12s`).
 - **Log messages** lead with a past-tense verb: `Pressed W Key`, `Enabled Switch To Game`, `Failed To Focus Game`, `Skipped Game Not Focused`. Errors log the exception type, not its message, which is not Title Case and often ends in a full stop.
@@ -231,6 +237,7 @@ Load-bearing XAML:
 
 Load-bearing code-behind:
 
+- **The tray icon comes from the `WPF-UI.Tray` package**, reached through the `tray` clr-namespace because it has no xmlns of its own. Minimising hides the window, a left click or Open shows it again, and Exit closes it so `Closing` still saves. Its `ContextMenu` lives outside the visual tree and inherits no `DataContext`, so the code-behind sets one.
 - **Log autoscroll is posted.** `ScrollToEnd` straight from `CollectionChanged` runs before the new row is measured and stops one row short. Keep the `Dispatcher.BeginInvoke(DispatcherPriority.Background, ...)`.
 - **The view model is constructed in code-behind.** `d:DataContext` is design-time only.
 - **The window cannot be resized or maximized.** `ResizeMode="CanMinimize"` drops the resize frame and maximize style, and the title bar needs `CanMaximize="False"` and `ShowMaximize="False"` as well, because WPF-UI draws its own buttons and handles double clicks itself.
@@ -242,7 +249,7 @@ The notice `ui:InfoBar` is invisible to UI Automation. Check it with a screensho
 
 ## Verifying Changes By Hand
 
-There is no UI test harness. **Ask before launching the app** on this machine: it is `Topmost`, maximizes and foregrounds games, and injects real input.
+There is no UI test harness. **Ask before launching the app** on this machine: it is `Topmost`, restores and foregrounds games, and injects real input.
 
 - **Screenshots** — `PrintWindow` with flag `2` against the window handle, after `SetProcessDPIAware` so the capture is not cropped.
 - **Driving the UI** — `System.Windows.Automation` from Windows PowerShell. Buttons expose `InvokePattern`, checkboxes and toggles `TogglePattern`, the slider `RangeValuePattern`, number boxes `ValuePattern`, and the game picker `ExpandCollapsePattern` with `SelectionItemPattern` on its items.
@@ -300,6 +307,8 @@ Read every file the change touches first: code-behind, services, models, interfa
 ## Things That Look Wrong But Are Not
 
 - `Stop` has `CanExecute = nameof(IsRunning)` while Start/Pause has none, so the primary button stays live as Pause and Resume.
+- `TryValidateConfiguration` asks `BuildActions` whether anything would fire instead of repeating the checkbox list, so validation and the run can never disagree.
+- Randomize Simulation both shuffles the actions and keeps a random slice of them, so one simulation may press a single key and the next may click and glide. Every enabled input still runs often enough over a minute.
 - `CheckForUpdatesAsync` takes a `bool?`. The title bar button passes nothing and the constructor passes `true`, because a `RelayCommand` cannot turn a XAML string into a `bool`.
 - `DiscoverSteamGameRoots` lets `First(Directory.Exists)` throw when Steam is missing; the source's own `try` turns that into no Steam games.
 - `OnRunUntilEnabledChanged` raises `HoursMaximum` by hand before moving the boxes. The generated notification fires only after the partial method, and the Hours box would otherwise clamp a clock hour of 17 to the old maximum of 8.

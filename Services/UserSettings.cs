@@ -22,8 +22,11 @@ internal sealed record UserSettings(
     bool RandomizeSimulation,
     bool RandomizeIntervals,
     bool HoldKeys,
+    bool BurstActivity,
     bool MouseMovement,
-    string? PreferredGameKey
+    string? PreferredGameKey,
+    double? WindowLeft,
+    double? WindowTop
 )
 {
     private static readonly string s_filePath = Path.Combine(

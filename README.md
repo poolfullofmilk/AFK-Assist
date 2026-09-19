@@ -11,13 +11,16 @@ Keep Your Game Active While You Are Away By Simulating Keyboard And Mouse Input
 - One Custom Key, Recorded By Pressing It
 - Adjustable Speed (1-10 Simulations Per Minute) With An Optional Start Delay
 - Run For A Duration (Up To 8 Hours) Or Run Until A Clock Time, With Presets For Both
+- Shows The Time The Run Ends In Both Modes
 - Only Types Into The Game When Switch To Game Is On, And Picks The First Game It Finds
-- Pauses When You Touch The PC And Resumes After A Minute Of Idle
-- Optional: Randomized Patterns, Randomized Intervals, Longer Key Holds, Natural Mouse Movement
+- Pauses When You Touch The PC And Resumes 5 Seconds After You Stop
+- Optional: Randomized Patterns, Randomized Intervals, Longer Key Holds, Burst Activity
+- Lives In The Tray While It Runs, With Pause And Stop On Its Menu
+- Logs A Summary Of Everything It Sent When A Run Ends
 - Timing Clusters Like Real Hands, Mouse Glides Sideways With Slight Tremor
 - Works With Any Keyboard Layout, Keys Stay On The Physical WASD Positions
 - Live Activity Log, Saved To Documents For 30 Days
-- Settings Are Remembered Between Sessions
+- Every Setting And The Window Spot Are Remembered Between Sessions
 - Pause To Change Anything Mid Run, Then Resume
 
 ## Quick Start

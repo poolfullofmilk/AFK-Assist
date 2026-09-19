@@ -3,9 +3,11 @@ using System.Runtime.InteropServices;
 
 namespace AFK_Assist.Services;
 
+internal readonly record struct WindowBounds(int Left, int Top, int Right, int Bottom);
+
 internal static partial class GameWindowFocus
 {
-    private const int ShowMaximized = 3;
+    private const int ShowRestored = 9;
 
     public static string? TryFocusGameWindow(string? preferredProcessKey)
     {
@@ -14,7 +16,7 @@ internal static partial class GameWindowFocus
             return null;
         }
 
-        ShowWindow(windowHandle, ShowMaximized);
+        ShowWindow(windowHandle, ShowRestored);
         if (TryForeground(windowHandle))
         {
             return processKey;
@@ -50,6 +52,25 @@ internal static partial class GameWindowFocus
             return false;
         }
     }
+
+    public static bool IsRunning(string processKey)
+    {
+        foreach (var process in Process.GetProcesses())
+        {
+            using (process)
+            {
+                if (GameScanner.NormalizeProcessKey(process.ProcessName) == processKey)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public static WindowBounds? ForegroundBounds() =>
+        GetWindowRect(GetForegroundWindow(), out var bounds) ? bounds : null;
 
     private static (nint WindowHandle, string ProcessKey)? FindGameWindow(
         string? preferredProcessKey
@@ -99,6 +120,10 @@ internal static partial class GameWindowFocus
 
     [LibraryImport("user32.dll")]
     private static partial nint GetForegroundWindow();
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetWindowRect(nint windowHandle, out WindowBounds bounds);
 
     [LibraryImport("user32.dll")]
     private static partial uint GetWindowThreadProcessId(nint windowHandle, out uint processId);

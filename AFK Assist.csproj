@@ -9,7 +9,7 @@
         <ApplicationIcon>Icon.ico</ApplicationIcon>
         <Description>Keeps A Game Active While You Are Away By Simulating Keyboard And Mouse Input</Description>
         <Copyright>Copyright 2026</Copyright>
-        <Version>1.1</Version>
+        <Version>1.2</Version>
         <RuntimeIdentifier>win-x64</RuntimeIdentifier>
         <SelfContained>true</SelfContained>
         <PublishSingleFile>true</PublishSingleFile>
@@ -20,6 +20,7 @@
     <ItemGroup>
         <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
         <PackageReference Include="WPF-UI" Version="4.3.0" />
+        <PackageReference Include="WPF-UI.Tray" Version="4.3.0" />
         <Resource Include="Icon.ico" />
     </ItemGroup>
 </Project>

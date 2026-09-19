@@ -2,6 +2,7 @@
                  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 xmlns:tray="clr-namespace:Wpf.Ui.Tray.Controls;assembly=Wpf.Ui.Tray"
                  xmlns:viewmodels="clr-namespace:AFK_Assist.ViewModels"
                  xmlns:views="clr-namespace:AFK_Assist.Views"
                  xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -44,6 +45,27 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
+
+        <!-- NotifyIcon -->
+        <tray:NotifyIcon x:Name="TrayIcon"
+                         FocusOnLeftClick="True"
+                         Icon="pack://application:,,,/Icon.ico"
+                         LeftClick="ShowFromTray"
+                         MenuOnRightClick="True"
+                         TooltipText="AFK Assist">
+            <tray:NotifyIcon.Menu>
+                <ContextMenu>
+                    <MenuItem Command="{Binding StartOrPauseCommand}"
+                              Header="{Binding StartButtonLabel}" />
+                    <MenuItem Command="{Binding StopCommand}"
+                              Header="Stop" />
+                    <MenuItem Click="ShowFromTray"
+                              Header="Open" />
+                    <MenuItem Click="CloseFromTray"
+                              Header="Exit" />
+                </ContextMenu>
+            </tray:NotifyIcon.Menu>
+        </tray:NotifyIcon>
 
         <!-- TitleBar -->
         <ui:TitleBar Grid.Row="0"
@@ -107,6 +129,8 @@
                                   IsChecked="{Binding MouseLeftClickEnabled}" />
                         <CheckBox Content="Right Click"
                                   IsChecked="{Binding MouseRightClickEnabled}" />
+                        <CheckBox Content="Move Mouse"
+                                  IsChecked="{Binding MouseMovementEnabled}" />
                     </StackPanel>
                     <StackPanel Grid.Column="2"
                                 VerticalAlignment="Top">
@@ -181,7 +205,7 @@
                                               FontTypography="BodyStrong"
                                               Text="Start Delay" />
                                 <ItemsControl HorizontalAlignment="Right"
-                                              ItemsSource="{x:Static viewmodels:MainViewModel.StartDelayPresets}">
+                                              ItemsSource="{Binding StartDelayPresets}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
                                             <StackPanel Orientation="Horizontal" />
@@ -241,7 +265,7 @@
                                               FontTypography="BodyStrong"
                                               Text="Duration" />
                                 <ItemsControl HorizontalAlignment="Right"
-                                              ItemsSource="{x:Static viewmodels:MainViewModel.DurationPresets}">
+                                              ItemsSource="{Binding DurationPresets}">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
                                             <StackPanel Orientation="Horizontal" />
@@ -292,17 +316,22 @@
                             </Grid>
 
                             <!-- Run Mode ToggleSwitch -->
-                            <StackPanel Margin="0,12,0,0"
-                                        Orientation="Horizontal">
-                                <ui:TextBlock VerticalAlignment="Center"
-                                              Text="Run For" />
-                                <ui:ToggleSwitch Margin="12,0,12,0"
-                                                 VerticalAlignment="Center"
-                                                 AutomationProperties.Name="Run Until"
-                                                 IsChecked="{Binding RunUntilEnabled}" />
-                                <ui:TextBlock VerticalAlignment="Center"
-                                              Text="Run Until" />
-                            </StackPanel>
+                            <Grid Margin="0,12,0,0">
+                                <StackPanel Orientation="Horizontal">
+                                    <ui:TextBlock VerticalAlignment="Center"
+                                                  Text="Run For" />
+                                    <ui:ToggleSwitch Margin="12,0,12,0"
+                                                     VerticalAlignment="Center"
+                                                     AutomationProperties.Name="Run Until"
+                                                     IsChecked="{Binding RunUntilEnabled}" />
+                                    <ui:TextBlock VerticalAlignment="Center"
+                                                  Text="Run Until" />
+                                </StackPanel>
+                                <ui:TextBlock HorizontalAlignment="Right"
+                                              VerticalAlignment="Center"
+                                              Appearance="Secondary"
+                                              Text="{Binding EndsAtLabel}" />
+                            </Grid>
                         </StackPanel>
                     </ui:Card>
 
@@ -405,8 +434,8 @@
                                      Content="Hold Keys Longer"
                                      IsChecked="{Binding HoldKeysEnabled}" />
                     <ui:ToggleSwitch Margin="0,8,0,0"
-                                     Content="Move Mouse Naturally"
-                                     IsChecked="{Binding MouseMovementEnabled}" />
+                                     Content="Burst Activity"
+                                     IsChecked="{Binding BurstActivityEnabled}" />
                 </StackPanel>
             </ui:Card>
 
@@ -423,9 +452,15 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
                     <Grid Grid.Row="0">
-                        <ui:TextBlock VerticalAlignment="Center"
-                                      FontTypography="BodyStrong"
-                                      Text="Activity" />
+                        <StackPanel Orientation="Horizontal">
+                            <ui:TextBlock VerticalAlignment="Center"
+                                          FontTypography="BodyStrong"
+                                          Text="Activity" />
+                            <ui:TextBlock Margin="12,0,0,0"
+                                          VerticalAlignment="Center"
+                                          Appearance="Tertiary"
+                                          Text="{Binding NextActionLabel}" />
+                        </StackPanel>
                         <StackPanel HorizontalAlignment="Right"
                                     Orientation="Horizontal">
                             <ui:Button Command="{Binding OpenLogFolderCommand}"

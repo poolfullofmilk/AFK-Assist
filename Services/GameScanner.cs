@@ -292,7 +292,7 @@ internal static partial class GameScanner
                     continue;
                 }
 
-                // Two Levels Up From The Client Is The Riot Root
+                // Two Levels Up Sits The Riot Root
                 var riotRoot = Path.GetDirectoryName(
                     Path.GetDirectoryName(property.Value.GetString()?.TrimEnd('\\', '/'))
                 );

@@ -25,12 +25,62 @@ public partial class MainWindow : FluentWindow
 
         Loaded += (_, _) =>
             Dispatcher.BeginInvoke(DispatcherPriority.Background, LockHeightToContent);
-        Closing += (_, _) => _viewModel.SaveSettings();
+        Closing += (_, _) => SavePlaceAndSettings();
         NoticeBar.SizeChanged += (_, _) => MakeRoomForNotice();
         NoticeBar.IsVisibleChanged += (_, _) => MakeRoomForNotice();
         CustomKeyButton.LostKeyboardFocus += (_, _) => _viewModel.ApplyCapturedKey(0);
 
+        // A Context Menu Lives Outside The Visual Tree
+        TrayIcon.Menu?.DataContext = _viewModel;
+        StateChanged += (_, _) => HideWhenMinimized();
+
         SystemThemeWatcher.Watch(this);
+        RestorePlace();
+    }
+
+    private void RestorePlace()
+    {
+        if (_viewModel.WindowLeft is not { } left || _viewModel.WindowTop is not { } top)
+        {
+            return;
+        }
+
+        // A Vanished Monitor Falls Back To Centre
+        Rect screens = new(
+            SystemParameters.VirtualScreenLeft,
+            SystemParameters.VirtualScreenTop,
+            SystemParameters.VirtualScreenWidth,
+            SystemParameters.VirtualScreenHeight
+        );
+
+        if (screens.Contains(new Point(left + (Width / 2), top + SystemParameters.CaptionHeight)))
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            (Left, Top) = (left, top);
+        }
+    }
+
+    private void HideWhenMinimized()
+    {
+        if (WindowState == WindowState.Minimized)
+        {
+            Hide();
+        }
+    }
+
+    private void ShowFromTray(object sender, RoutedEventArgs eventArgs)
+    {
+        Show();
+        WindowState = WindowState.Normal;
+        Activate();
+    }
+
+    private void CloseFromTray(object sender, RoutedEventArgs eventArgs) => Close();
+
+    private void SavePlaceAndSettings()
+    {
+        (_viewModel.WindowLeft, _viewModel.WindowTop) = (Left, Top);
+        _viewModel.SaveSettings();
     }
 
     private void LockHeightToContent()
