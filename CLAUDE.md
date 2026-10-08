@@ -52,7 +52,7 @@ Do not reach for `PublishTrimmed` or Native AOT. WPF is not trim-safe and is uns
 
 `<AssemblyName>`, `<RootNamespace>`, `<Product>` and `<Company>` are not in the project because the SDK defaults already produce `AFK Assist` and `AFK_Assist`.
 
-`<Version>` is the release version with two parts, currently `1.3`, tagged `v1.3`. `UpdateChecker.CurrentVersion` reads it back through `Assembly.GetName().Version`, which pads it to `1.3.0.0`; the `v1.3` tag parses as `1.3`, which sorts below `1.3.0.0` because unset parts count as lower, so a release never flags itself. Dialogs print two parts. A tag without a minor part, like the old `v1`, does not parse at all. Bump `<Version>` together with the release tag.
+`<Version>` is the release version with two parts, currently `1.4`, tagged `v1.4`. `UpdateChecker.CurrentVersion` reads it back through `Assembly.GetName().Version`, which pads it to `1.4.0.0`; the `v1.4` tag parses as `1.4`, which sorts below `1.4.0.0` because unset parts count as lower, so a release never flags itself. Dialogs print two parts. A tag without a minor part, like the old `v1`, does not parse at all. Bump `<Version>` together with the release tag.
 
 `DebugType` is `embedded`, so symbols ride inside the single file and Debug builds keep them. `SatelliteResourceLanguages` is `en`, which drops 8 MB of translated WPF exception strings from an app whose own text is English only.
 
@@ -68,7 +68,7 @@ Run after every change, before reporting work as done:
 csharpier format .
 ```
 
-It is a global tool, invoked as `csharpier`, not `dotnet csharpier`. It formats C# and rewrites the `.csproj`; do not hand-indent project files. It does not touch XAML, which follows the rules in [UI Conventions](#ui-conventions).
+It is a global tool, invoked as `csharpier`, not `dotnet csharpier`. It formats C# and rewrites the `.csproj`; do not hand-indent project files. `.csharpierignore` keeps it off XAML, which follows the rules in [UI Conventions](#ui-conventions) instead of its own layout.
 
 ## Project Layout
 
@@ -85,7 +85,7 @@ Services/GameScanner.cs               Finds installed games on disk
 Services/UpdateChecker.cs             GitHub latest-release comparison
 Services/UserSettings.cs              Settings persisted to %AppData%
 Services/RunLog.cs                    One text file per run under Documents
-Icon.ico, Screenshot-*.png            App icon, README screenshots
+Icon.ico, Screenshots/             App icon, README screenshots
 ```
 
 No dependency injection, navigation, messenger or repository layer. One window, one view model, seven services. Keep it that way.
@@ -171,17 +171,19 @@ The hooks are never uninstalled. Windows removes them when the process exits.
 
 ## Scheduling
 
-With Burst Activity on, `CreateBurstSchedule` drops one to three burst starts anywhere in the minute and scatters the actions around them inside `BurstSpreadSeconds`, then sorts, so quiet stretches sit between clusters instead of an even beat. The count per minute is still exact.
+One Randomize toggle covers the per-minute count, burst placement, the shuffled slice of actions, holds and gaps. Mouse glides stay random either way. Burst Activity and the two separate Randomize toggles of 1.3 are gone; nobody could tell them apart.
 
-`CreateMinuteSchedule` on the view model gives each action a slot and places it at the slot start plus up to ±35% of a slot width, clamped inside the minute. The count per minute is exact. Slots never overlap, because the latest point of one slot sits 30% of a slot before the earliest point of the next, so the array needs no sort. With Randomize Intervals off the jitter is zero.
+With Randomize on, `CreateMinuteSchedule` draws the count between half and one and a half times the speed setting, never below one, and hands it to `CreateBurstSchedule`. That drops one to three burst starts anywhere in the minute and scatters the actions around them inside `BurstSpreadSeconds`, then sorts, so quiet stretches sit between clusters instead of an even beat. An exact count every minute for hours is the loudest pattern the app can produce, and it is the one a server notices without inspecting anything Windows knows.
 
-With Randomize Intervals on, the count itself is drawn between half and one and a half times the speed setting, never below one. An exact count every minute for hours is the loudest pattern the app can produce, and it is the one a server notices without inspecting anything Windows knows.
+With Randomize off, the actions sit on an even beat at the exact speed setting.
 
-`RunScheduleAsync` polls every 250 ms so Pause and Stop stay responsive, and rebuilds the schedule at each minute boundary **and** whenever the speed changes. Slots missed while a long simulation ran, or while a rebuild landed mid-minute, collapse into one action instead of firing back to back.
+`RunScheduleAsync` polls every 250 ms so Pause and Stop stay responsive, and rebuilds the schedule at each minute boundary **and** whenever the speed changes. A burst packs its slots into 8 s while a glide alone can take seconds, so slots missed during a long simulation fire back to back; collapsing them, as 1.3 did, cut speed 10 down to about three actions a minute. A rebuild mid-minute skips the slots already past, and a minute boundary drops whatever is left.
+
+`MaximumQuietSeconds` caps any silence at 60 s by firing an extra action that uses up no slot. Bursts alone can leave about two minutes quiet across a minute boundary, long enough for some games to kick.
 
 The first action lands about 800 ms late with Switch To Game on, because focusing waits `FocusSettleDelayMilliseconds` after the stopwatch starts. Do not start the stopwatch later to hide that; the focus time belongs to the run.
 
-Hold and gap ranges live in `(Minimum, Maximum)` tuples on the view model. `NextMilliseconds` picks inclusively when Randomize Intervals is on and the midpoint when it is off.
+Hold and gap ranges live in `(Minimum, Maximum)` tuples on the view model. `NextMilliseconds` picks inclusively when Randomize is on and the midpoint when it is off.
 
 ## Game Detection
 
@@ -218,7 +220,7 @@ The scan runs once per process, well under a second. Games installed while the a
 
 `RunLog` writes `Documents\AFK Assist\Logs\Run yyyy-MM-dd HH-mm-ss.txt`. `Open` holds one `StreamWriter` with `AutoFlush` for the whole run, so a crash still leaves every line on disk without reopening the file per line; `Close` ends it. The file keeps milliseconds; the screen shows seconds. `RetentionDays` lives here, the constructor calls `DeleteExpired` off the dispatcher, Clear Log Files deletes all of them, and every call swallows its exceptions.
 
-`UserSettings` is a record with `Load` and `Save` on it, because the record is what gets loaded and saved. It holds everything the window shows, plus the window's own spot, and it writes `%AppData%\AFK Assist\settings.json` from the window's `Closing` handler. `WindowLeft` and `WindowTop` are plain view model properties rather than bound ones; the window fills them in on close and reads them back in its constructor, and a spot whose title bar centre no longer lands on a monitor falls back to `CenterScreen`. Missing properties in an older file fall back to their defaults. `RestoreSettings` clamps every number to the same limits the window uses, sets Run Until before the boxes because the mode converts them, and the constructor clears the log afterwards because restoring is not activity.
+`UserSettings` is a record with `Load` and `Save` on it, because the record is what gets loaded and saved. It holds everything the window shows, plus the window's own spot, and it writes `%AppData%\AFK Assist\settings.json` from the window's `Closing` handler. `WindowLeft` and `WindowTop` are plain view model properties rather than bound ones; the window fills them in on close and reads them back in its constructor, and a spot whose title bar centre no longer lands on a monitor falls back to `CenterScreen`. Missing properties in an older file fall back to their defaults, which is `false` except for `Randomize`, whose parameter default of `true` keeps a 1.3 file from switching it off. `RestoreSettings` clamps every number to the same limits the window uses, sets Run Until before the boxes because the mode converts them, and the constructor clears the log afterwards because restoring is not activity.
 
 ## UI Conventions
 
@@ -249,8 +251,8 @@ Load-bearing code-behind:
 - **Log autoscroll is posted.** `ScrollToEnd` straight from `CollectionChanged` runs before the new row is measured and stops one row short. Keep the `Dispatcher.BeginInvoke(DispatcherPriority.Background, ...)`.
 - **The view model is constructed in code-behind.** `d:DataContext` is design-time only.
 - **The window cannot be resized or maximized.** `ResizeMode="CanMinimize"` drops the resize frame and maximize style, and the title bar needs `CanMaximize="False"` and `ShowMaximize="False"` as well, because WPF-UI draws its own buttons and handles double clicks itself.
-- **The window has no `Height` in XAML.** It opens with `SizeToContent="Height"`, and `LockHeightToContent` switches to manual once laid out, capped at the work area so a small screen scrolls the configuration instead. The lock is posted at `Background` priority and re-applies `SizeToContent` first, because `ui:InfoBar` is still measured open on the first pass. The log sits in a `*` row, so an empty log asks for no height.
-- **`MakeRoomForNotice` sets `Height` absolutely** to the base captured at lock time plus the bar, and listens to both `SizeChanged` and `IsVisibleChanged`. `SizeChanged` does not fire when the bar collapses, so without the second event the window never shrinks back. The earlier version only followed along while `Height` still matched the old minimum, and left a gap above the Time card whenever it did not.
+- **The window sizes itself once and then stays fixed.** It opens with `SizeToContent="Height"` and `LockHeightToContent` switches to manual, capped at the work area so a small screen scrolls the configuration instead. The lock is posted at `Background` priority and re-applies `SizeToContent` first, because `ui:InfoBar` is still measured open on the first pass; locking straight from `Loaded` leaves a 34 DIP gap above the Time card. A hard-coded height only fits one DPI: layout rounding makes the left column a few DIP taller at 100% than at 125%. Nothing changes the size after that.
+- **The notice `ui:InfoBar` sits in the Activity card**, above the log, so showing it shrinks the log and never resizes the window.
 - **Custom key capture** runs on the button's `PreviewKeyDown` only while `IsCapturingCustomKey` is set. `Key.System` is unwrapped for Alt combinations, bare modifiers (the consecutive Shift, Ctrl and Alt range plus both Windows keys) are ignored, Escape cancels, and `LostKeyboardFocus` cancels too.
 
 The notice `ui:InfoBar` is invisible to UI Automation. Check it with a screenshot.
@@ -318,7 +320,7 @@ Read every file the change touches first: code-behind, services, models, interfa
 - `RunClockAsync` still ticks at 250 ms for auto pause but only refreshes the labels when the second changes, and `EndsAtLabel` only when its minute does. A tick that changes nothing raises nothing.
 - `BuildActions` is a plain list of `if`s rather than a collection expression. It reads in the same order as the checkboxes and allocates two objects instead of ten, on a path that runs per simulation.
 - `TryValidateConfiguration` asks `BuildActions` whether anything would fire instead of repeating the checkbox list, so validation and the run can never disagree.
-- Randomize Simulation both shuffles the actions and keeps a random slice of them, so one simulation may press a single key and the next may click and glide. Every enabled input still runs often enough over a minute.
+- Randomize both shuffles the actions and keeps a random slice of them, so one simulation may press a single key and the next may click and glide. Every enabled input still runs often enough over a minute.
 - `CheckForUpdatesAsync` takes a `bool?`. The title bar button passes nothing and the constructor passes `true`, because a `RelayCommand` cannot turn a XAML string into a `bool`.
 - `DiscoverSteamGameRoots` lets `First(Directory.Exists)` throw when Steam is missing; the source's own `try` turns that into no Steam games.
 - `OnRunUntilEnabledChanged` raises `HoursMaximum` by hand before moving the boxes. The generated notification fires only after the partial method, and the Hours box would otherwise clamp a clock hour of 17 to the old maximum of 8.

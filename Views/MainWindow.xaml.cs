@@ -10,7 +10,6 @@ namespace AFK_Assist.Views;
 public partial class MainWindow : FluentWindow
 {
     private readonly MainViewModel _viewModel;
-    private double _baseHeight;
 
     public MainWindow()
     {
@@ -26,8 +25,6 @@ public partial class MainWindow : FluentWindow
         Loaded += (_, _) =>
             Dispatcher.BeginInvoke(DispatcherPriority.Background, LockHeightToContent);
         Closing += (_, _) => SavePlaceAndSettings();
-        NoticeBar.SizeChanged += (_, _) => MakeRoomForNotice();
-        NoticeBar.IsVisibleChanged += (_, _) => MakeRoomForNotice();
         CustomKeyButton.LostKeyboardFocus += (_, _) => _viewModel.ApplyCapturedKey(0);
 
         // A Context Menu Lives Outside The Visual Tree
@@ -91,19 +88,7 @@ public partial class MainWindow : FluentWindow
 
         // A Small Screen Scrolls The Configuration Instead
         SizeToContent = SizeToContent.Manual;
-        _baseHeight = Math.Min(ActualHeight, SystemParameters.WorkArea.Height) - NoticeHeight();
-        MakeRoomForNotice();
-    }
-
-    private double NoticeHeight() =>
-        NoticeBar.IsVisible ? NoticeBar.ActualHeight + NoticeBar.Margin.Bottom : 0;
-
-    private void MakeRoomForNotice()
-    {
-        if (_baseHeight > 0)
-        {
-            Height = _baseHeight + NoticeHeight();
-        }
+        Height = Math.Min(ActualHeight, SystemParameters.WorkArea.Height);
     }
 
     private void CaptureCustomKey(object sender, KeyEventArgs eventArgs)

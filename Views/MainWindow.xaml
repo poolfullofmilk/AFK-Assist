@@ -61,7 +61,6 @@
         </Grid.Resources>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
@@ -104,16 +103,7 @@
             </ui:TitleBar.TrailingContent>
         </ui:TitleBar>
 
-        <!-- InfoBar -->
-        <ui:InfoBar x:Name="NoticeBar"
-                    Grid.Row="1"
-                    Margin="16,0,16,12"
-                    IsClosable="False"
-                    IsOpen="{Binding HasNotice, Mode=OneWay}"
-                    Message="{Binding NoticeMessage}"
-                    Severity="{Binding NoticeSeverity}" />
-
-        <Grid Grid.Row="2"
+        <Grid Grid.Row="1"
               Margin="16,0,16,16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="360" />
@@ -404,17 +394,11 @@
                                   SelectedValuePath="Key" />
                     </Grid>
                     <ui:ToggleSwitch Margin="0,8,0,0"
-                                     Content="Randomize Simulation"
-                                     IsChecked="{Binding RandomizeSimulationEnabled}" />
-                    <ui:ToggleSwitch Margin="0,8,0,0"
-                                     Content="Randomize Intervals"
-                                     IsChecked="{Binding RandomizeIntervalsEnabled}" />
+                                     Content="Randomize"
+                                     IsChecked="{Binding RandomizeEnabled}" />
                     <ui:ToggleSwitch Margin="0,8,0,0"
                                      Content="Hold Keys Longer"
                                      IsChecked="{Binding HoldKeysEnabled}" />
-                    <ui:ToggleSwitch Margin="0,8,0,0"
-                                     Content="Burst Activity"
-                                     IsChecked="{Binding BurstActivityEnabled}" />
                 </StackPanel>
             </ui:Card>
 
@@ -427,6 +411,7 @@
                      VerticalContentAlignment="Stretch">
                 <Grid>
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
@@ -451,9 +436,17 @@
                         </StackPanel>
                     </Grid>
 
+                    <!-- InfoBar -->
+                    <ui:InfoBar Grid.Row="1"
+                                Margin="0,8,0,0"
+                                IsClosable="False"
+                                IsOpen="{Binding HasNotice, Mode=OneWay}"
+                                Message="{Binding NoticeMessage}"
+                                Severity="{Binding NoticeSeverity}" />
+
                     <!-- Log ScrollViewer -->
                     <ScrollViewer x:Name="LogScrollViewer"
-                                  Grid.Row="1"
+                                  Grid.Row="2"
                                   Margin="0,8,0,0"
                                   HorizontalScrollBarVisibility="Disabled"
                                   VerticalScrollBarVisibility="Auto">
@@ -510,7 +503,7 @@
                     </ScrollViewer>
 
                     <!-- Empty Activity TextBlock -->
-                    <TextBlock Grid.Row="1"
+                    <TextBlock Grid.Row="2"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"
                                Foreground="{DynamicResource TextFillColorTertiaryBrush}"

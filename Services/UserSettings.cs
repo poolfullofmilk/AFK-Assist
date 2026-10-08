@@ -19,14 +19,12 @@ internal sealed record UserSettings(
     double DurationMinutes,
     bool RunUntil,
     bool SwitchToGame,
-    bool RandomizeSimulation,
-    bool RandomizeIntervals,
     bool HoldKeys,
-    bool BurstActivity,
     bool MouseMovement,
     string? PreferredGameKey,
     double? WindowLeft,
-    double? WindowTop
+    double? WindowTop,
+    bool Randomize = true
 )
 {
     private static readonly string s_filePath = Path.Combine(

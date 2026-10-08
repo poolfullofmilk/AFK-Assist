@@ -45,9 +45,9 @@ internal partial class MainViewModel : ObservableObject
     public const double MaximumSeconds = 59;
 
     private const double MaximumClockHour = 23;
-    private const double MaximumJitterFraction = 0.35;
     private const double EdgeMarginSeconds = 0.05;
     private const double BurstSpreadSeconds = 8.0;
+    private const double MaximumQuietSeconds = 60.0;
     private const double MinimumMinuteShare = 0.5;
     private const int PollIntervalMilliseconds = 250;
     private const int FocusSettleDelayMilliseconds = 800;
@@ -55,6 +55,7 @@ internal partial class MainViewModel : ObservableObject
     private const long AutoPauseGraceMilliseconds = 3_000;
     private const long AutoResumeIdleMilliseconds = 5_000;
     private const string ZeroDuration = "0s";
+    private const string RandomizeOffNotice = "Randomize Off Raises Detection Risk";
 
     private static readonly (int Minimum, int Maximum) s_burstsPerMinute = (1, 3);
 
@@ -166,16 +167,10 @@ internal partial class MainViewModel : ObservableObject
     private bool _switchToGameEnabled = true;
 
     [ObservableProperty]
-    private bool _randomizeSimulationEnabled = true;
-
-    [ObservableProperty]
-    private bool _randomizeIntervalsEnabled = true;
+    private bool _randomizeEnabled = true;
 
     [ObservableProperty]
     private bool _holdKeysEnabled;
-
-    [ObservableProperty]
-    private bool _burstActivityEnabled;
 
     [ObservableProperty]
     private bool _mouseMovementEnabled;
@@ -221,7 +216,7 @@ internal partial class MainViewModel : ObservableObject
     public ObservableCollection<LogEntry> LogEntries { get; } = [];
 
     public ObservableCollection<KeyValuePair<string, string>> AvailableGames { get; } =
-        [new(string.Empty, "Automatic")];
+    [new(string.Empty, "Automatic")];
 
     public Preset[] StartDelayPresets => s_startDelayPresets;
 
@@ -580,14 +575,12 @@ internal partial class MainViewModel : ObservableObject
             DurationMinutes ?? 0,
             RunUntilEnabled,
             SwitchToGameEnabled,
-            RandomizeSimulationEnabled,
-            RandomizeIntervalsEnabled,
             HoldKeysEnabled,
-            BurstActivityEnabled,
             MouseMovementEnabled,
             _isGameAutoSelected ? string.Empty : SelectedGameKey ?? string.Empty,
             WindowLeft,
-            WindowTop
+            WindowTop,
+            RandomizeEnabled
         ).Save();
 
     private void RestoreSettings()
@@ -618,10 +611,8 @@ internal partial class MainViewModel : ObservableObject
         DurationMinutes = Math.Clamp(settings.DurationMinutes, 0, MaximumMinutes);
 
         SwitchToGameEnabled = settings.SwitchToGame;
-        RandomizeSimulationEnabled = settings.RandomizeSimulation;
-        RandomizeIntervalsEnabled = settings.RandomizeIntervals;
+        RandomizeEnabled = settings.Randomize;
         HoldKeysEnabled = settings.HoldKeys;
-        BurstActivityEnabled = settings.BurstActivity;
         MouseMovementEnabled = settings.MouseMovement;
         SelectedGameKey = settings.PreferredGameKey ?? string.Empty;
         (WindowLeft, WindowTop) = (settings.WindowLeft, settings.WindowTop);
@@ -746,6 +737,7 @@ internal partial class MainViewModel : ObservableObject
         var scheduleIndex = 0;
         var scheduledMinute = -1;
         var scheduledSpeed = 0;
+        var lastActionSeconds = 0.0;
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -756,61 +748,78 @@ internal partial class MainViewModel : ObservableObject
             // A Speed Change While Paused Takes Effect At Once
             if (minute != scheduledMinute || SimulationsPerMinute != scheduledSpeed)
             {
+                schedule = CreateMinuteSchedule(SimulationsPerMinute);
+
+                // A Mid Minute Rebuild Skips Slots Already Gone
+                scheduleIndex =
+                    minute == scheduledMinute
+                        ? schedule.Count(dueSecond => dueSecond < secondWithinMinute)
+                        : 0;
                 scheduledMinute = minute;
                 scheduledSpeed = SimulationsPerMinute;
-                scheduleIndex = 0;
-                schedule = CreateMinuteSchedule(scheduledSpeed);
             }
 
-            _nextDueSeconds = NextDueSeconds(scheduledMinute, schedule, scheduleIndex);
+            _nextDueSeconds = NextDueSeconds(
+                scheduledMinute,
+                schedule,
+                scheduleIndex,
+                lastActionSeconds
+            );
 
-            var isDue =
-                scheduleIndex < schedule.Length && secondWithinMinute >= schedule[scheduleIndex];
-
-            if (IsPaused || !isDue)
+            if (IsPaused || elapsedSeconds < _nextDueSeconds)
             {
                 // Short Hops Keep Pause And Stop Responsive
                 await poll.WaitForNextTickAsync(cancellationToken);
                 continue;
             }
 
-            // Missed Slots Collapse Into One Action
-            while (
-                scheduleIndex + 1 < schedule.Length
-                && secondWithinMinute >= schedule[scheduleIndex + 1]
-            )
+            // Late Slots Fire Back To Back Like A Burst
+            if (scheduleIndex < schedule.Length && secondWithinMinute >= schedule[scheduleIndex])
             {
                 scheduleIndex++;
             }
 
-            scheduleIndex++;
+            lastActionSeconds = elapsedSeconds;
 
             // The Countdown Points At The Next Slot
-            _nextDueSeconds = NextDueSeconds(scheduledMinute, schedule, scheduleIndex);
+            _nextDueSeconds = NextDueSeconds(
+                scheduledMinute,
+                schedule,
+                scheduleIndex,
+                lastActionSeconds
+            );
             await ExecuteSimulationAsync(cancellationToken);
         }
     }
 
-    private static double NextDueSeconds(int minute, double[] schedule, int index) =>
-        (minute * 60.0) + (index < schedule.Length ? schedule[index] : 60.0);
+    private static double NextDueSeconds(
+        int minute,
+        double[] schedule,
+        int index,
+        double lastActionSeconds
+    )
+    {
+        // No Stretch Stays Quiet Long Enough To Get Kicked
+        return Math.Min(
+            (minute * 60.0) + (index < schedule.Length ? schedule[index] : 60.0),
+            lastActionSeconds + MaximumQuietSeconds
+        );
+    }
 
     private double[] CreateMinuteSchedule(int simulationsPerMinute)
     {
         // A Human Minute Is Never Exactly Like The Last
-        if (RandomizeIntervalsEnabled)
+        if (RandomizeEnabled)
         {
-            simulationsPerMinute = Math.Max(
-                1,
-                (int)
-                    Math.Round(
-                        simulationsPerMinute * (MinimumMinuteShare + Random.Shared.NextDouble())
-                    )
+            return CreateBurstSchedule(
+                Math.Max(
+                    1,
+                    (int)
+                        Math.Round(
+                            simulationsPerMinute * (MinimumMinuteShare + Random.Shared.NextDouble())
+                        )
+                )
             );
-        }
-
-        if (BurstActivityEnabled)
-        {
-            return CreateBurstSchedule(simulationsPerMinute);
         }
 
         var spacingSeconds = 60.0 / simulationsPerMinute;
@@ -818,18 +827,7 @@ internal partial class MainViewModel : ObservableObject
 
         for (var index = 0; index < simulationsPerMinute; index++)
         {
-            // Jitter Stays Inside Its Own Slot
-            var offsetSeconds = RandomizeIntervalsEnabled
-                ? (Random.Shared.NextDouble() + Random.Shared.NextDouble() - 1.0)
-                    * spacingSeconds
-                    * MaximumJitterFraction
-                : 0.0;
-
-            dueSeconds[index] = Math.Clamp(
-                (index * spacingSeconds) + offsetSeconds,
-                EdgeMarginSeconds,
-                60.0 - EdgeMarginSeconds
-            );
+            dueSeconds[index] = Math.Max(index * spacingSeconds, EdgeMarginSeconds);
         }
 
         return dueSeconds;
@@ -885,7 +883,7 @@ internal partial class MainViewModel : ObservableObject
         var actions = BuildActions();
         var actionCount = actions.Length;
 
-        if (RandomizeSimulationEnabled && actionCount > 1)
+        if (RandomizeEnabled && actionCount > 1)
         {
             // A Different Slice Runs Each Time
             Random.Shared.Shuffle(actions);
@@ -902,7 +900,7 @@ internal partial class MainViewModel : ObservableObject
             await action.RunAsync(cancellationToken);
             _sentCounts[(int)action.Kind]++;
 
-            if (RandomizeIntervalsEnabled)
+            if (RandomizeEnabled)
             {
                 await Task.Delay(NextMilliseconds(s_keyGapMilliseconds), cancellationToken);
             }
@@ -1027,7 +1025,7 @@ internal partial class MainViewModel : ObservableObject
     }
 
     private int NextMilliseconds((int Minimum, int Maximum) range) =>
-        RandomizeIntervalsEnabled
+        RandomizeEnabled
             ? InputSimulator.RandomInRange(range)
             : (range.Minimum + range.Maximum) / 2;
     #endregion
@@ -1119,31 +1117,23 @@ internal partial class MainViewModel : ObservableObject
     private void LogToggle(string featureName, bool isEnabled) =>
         AppendLog($"{(isEnabled ? "Enabled" : "Disabled")} {featureName}");
 
-    private void WarnOnRandomizeToggle(string featureName, bool isEnabled)
-    {
-        LogToggle(featureName, isEnabled);
+    partial void OnSwitchToGameEnabledChanged(bool value) => LogToggle("Switch To Game", value);
 
-        if (!isEnabled)
+    partial void OnRandomizeEnabledChanged(bool value)
+    {
+        LogToggle("Randomize", value);
+
+        if (!value)
         {
-            ShowNotice($"{featureName} Off Raises Detection Risk", InfoBarSeverity.Warning);
+            ShowNotice(RandomizeOffNotice, InfoBarSeverity.Warning);
         }
-        else if (NoticeMessage.StartsWith(featureName, StringComparison.Ordinal))
+        else if (NoticeMessage == RandomizeOffNotice)
         {
             NoticeMessage = string.Empty;
         }
     }
 
-    partial void OnSwitchToGameEnabledChanged(bool value) => LogToggle("Switch To Game", value);
-
-    partial void OnRandomizeSimulationEnabledChanged(bool value) =>
-        WarnOnRandomizeToggle("Randomize Simulation", value);
-
-    partial void OnRandomizeIntervalsEnabledChanged(bool value) =>
-        WarnOnRandomizeToggle("Randomize Intervals", value);
-
     partial void OnHoldKeysEnabledChanged(bool value) => LogToggle("Hold Keys Longer", value);
-
-    partial void OnBurstActivityEnabledChanged(bool value) => LogToggle("Burst Activity", value);
 
     partial void OnMouseMovementEnabledChanged(bool value) => LogToggle("Move Mouse", value);
 
