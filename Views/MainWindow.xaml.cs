@@ -23,7 +23,7 @@ public partial class MainWindow : FluentWindow
             Dispatcher.BeginInvoke(DispatcherPriority.Background, LogScrollViewer.ScrollToEnd);
 
         Loaded += (_, _) =>
-            Dispatcher.BeginInvoke(DispatcherPriority.Background, LockHeightToContent);
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, LockSizeToContent);
         Closing += (_, _) => SavePlaceAndSettings();
         CustomKeyButton.LostKeyboardFocus += (_, _) => _viewModel.ApplyCapturedKey(0);
 
@@ -80,15 +80,19 @@ public partial class MainWindow : FluentWindow
         _viewModel.SaveSettings();
     }
 
-    private void LockHeightToContent()
+    private void LockSizeToContent()
     {
         // The Notice Bar Only Collapses After The First Measure
         SizeToContent = SizeToContent.Height;
         UpdateLayout();
 
         // A Small Screen Scrolls The Configuration Instead
+        var height = Math.Min(ActualHeight, SystemParameters.WorkArea.Height);
         SizeToContent = SizeToContent.Manual;
-        Height = Math.Min(ActualHeight, SystemParameters.WorkArea.Height);
+
+        // The Title Bar Still Offers Resize Edges
+        (MinWidth, MaxWidth) = (Width, Width);
+        (MinHeight, MaxHeight, Height) = (height, height, height);
     }
 
     private void CaptureCustomKey(object sender, KeyEventArgs eventArgs)
