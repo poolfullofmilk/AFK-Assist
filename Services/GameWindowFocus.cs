@@ -18,7 +18,12 @@ internal static partial class GameWindowFocus
             return null;
         }
 
-        ShowWindow(windowHandle, ShowRestored);
+        // Restoring A Maximised Window Would Shrink It
+        if (IsIconic(windowHandle))
+        {
+            ShowWindow(windowHandle, ShowRestored);
+        }
+
         if (TryForeground(windowHandle))
         {
             return processKey;
@@ -98,6 +103,10 @@ internal static partial class GameWindowFocus
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool ShowWindow(nint windowHandle, int command);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool IsIconic(nint windowHandle);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
