@@ -58,6 +58,20 @@ Do not reach for `PublishTrimmed` or Native AOT. WPF is not trim-safe and is uns
 
 Debug builds land at `bin\Debug\net10.0-windows\AFK Assist.exe`, with no runtime identifier folder.
 
+## Releasing
+
+The owner asks for each release. The order is: `git pull` (the owner edits the README on GitHub), fresh screenshots, the README, bump `<Version>` and the version paragraph above, commit, push, `dotnet publish -c Release`, launch the exe alone from an empty folder, then:
+
+```
+gh release create vX.Y "AFK.Assist.vX.Y.exe" --target master --title "AFK Assist vX.Y" --notes ""
+```
+
+- The project keeps the SDK assembly name, so the publish output is `AFK Assist.exe`. Copy it to `AFK.Assist.vX.Y.exe` before uploading, which is the name GitHub would make of `AFK Assist vX.Y.exe` anyway and matches every earlier asset.
+- The body is empty and the exe is the only asset. Nothing in the release, the tag or the commit mentions an AI.
+- The owner keeps only the newest release. When asked, remove the old ones with `gh release delete vOld --cleanup-tag --yes` and prune local tags with `git fetch --prune --prune-tags`. `releases/latest` keeps working for the update check.
+- A Release exe launched from a session can write the owner's real `%AppData%\AFK Assist\settings.json` when it closes. End the test launch with `Stop-Process`, which skips `Closing` and saves nothing.
+- The README follows WifiWatch: sentence case, the name, a one-line tagline, an `Idle | Running` screenshot table, then `Features`, `Quick start`, `⚠️ Important` and `Technical details` with one to three bullets each.
+
 `Icon.ico` is both the `ApplicationIcon` and a WPF `Resource` shown in the title bar. Its first frame is 32 px because `ui:ImageIcon` decodes the first frame only.
 
 ## Formatting
@@ -74,7 +88,7 @@ It is a global tool, invoked as `csharpier`, not `dotnet csharpier`. It formats 
 
 ```
 AFK Assist.csproj / .slnx
-App.xaml                              Application entry, WPF-UI dictionaries
+App.xaml                              Application entry, WPF-UI dictionaries, dark until the watcher runs
 Views/MainWindow.xaml(.cs)            The only window
 Views/PresetAppearanceConverter.cs    Highlights the active preset chip
 ViewModels/MainViewModel.cs           All application logic
@@ -85,7 +99,10 @@ Services/GameScanner.cs               Finds installed games on disk
 Services/UpdateChecker.cs             GitHub latest-release comparison
 Services/UserSettings.cs              Settings persisted to %AppData%
 Services/RunLog.cs                    One text file per run under Documents
-Icon.ico, Screenshots/             App icon, README screenshots
+Screenshots/Idle.png, Running.png     README screenshots, 1050 x 1033 px at 125%
+Icon.ico                              App icon and title bar image
+README.md, LICENSE.txt                GitHub page and GPL-3.0
+.csharpierignore                      Keeps CSharpier off XAML
 ```
 
 No dependency injection, navigation, messenger or repository layer. One window, one view model, seven services. Keep it that way.
@@ -140,6 +157,12 @@ Setting only one breaks half the games. Do not go back to `keybd_event`.
 
 Key presses and clicks share `HoldAsync`, which sends the press, waits and sends the release.
 
+**Numbers.** A slide takes 140–900 ms over 24–320 steps, slides sit 80–900 ms apart, a hesitation (4% per step in the middle half of a sweep) lasts 30–160 ms, tremor is 12% of the step size, and the return lands within a 25 px Gaussian of the start. `KeepInside` keeps 40 px from the window edge and leaves windows under 200 px alone. Key taps hold 70–160 ms, Hold Keys Longer 1–3 s, clicks 60–140 ms, and the actions inside one simulation sit 120–360 ms apart with Randomize on.
+
+**Moves are relative, so Windows accelerates them.** Every move is a relative `MOUSEEVENTF_MOVE` delta, which Windows runs through the pointer speed and Enhance Pointer Precision before it moves the cursor. The pixel ranges above are what is sent, not where the cursor lands, and `KeepInside` clamps the requested delta, so with acceleration on a fast slide can end a little past the 40 px margin. Games reading raw input see the deltas unaccelerated.
+
+**Failures.** `Send` throws `Win32Exception` when `SendInput` reports anything but one event sent. `RunAsync` logs `Blocked By Windows` and stops the run; any other exception logs `Failed With <Type>`. UIPI blocks input from a non-elevated process into an elevated window, and Windows never names UIPI as the cause, so an elevated game needs AFK Assist elevated too.
+
 ## Detection
 
 Randomness only hides patterns. What stays traceable no matter what the timing looks like:
@@ -164,7 +187,7 @@ The hooks are never uninstalled. Windows removes them when the process exits.
 ## Switch To Game
 
 - **Picker.** The combo box binds `AvailableGames`, a list of process key → display name pairs, with `DisplayMemberPath="Value"`, `SelectedValuePath="Key"` and `SelectedValue` on `SelectedGameKey`. An empty key is Automatic. Settings store the key, never the display name. A key restored before the scan finishes waits inside the combo box until its item arrives; one that never arrives falls back to Automatic in `LoadAvailableGamesAsync`.
-- **Focus.** `GameWindowFocus.TryFocusGameWindow` finds the picked game, or with Automatic the first running process whose key the scanner knows, foregrounds it and returns that key. It keeps that `Process`, so `IsForeground` is one `GetWindowThreadProcessId` and `IsRunning` is one `HasExited` instead of a fresh snapshot of every process per simulation. `Finish` calls `Forget`. A minimised game is restored with `SW_RESTORE`, never forced to maximise. Foregrounding needs `BringWindowToTop` plus `SetForegroundWindow`, retried inside `AttachThreadInput` when Windows refuses; leave it alone unless tested against a real game.
+- **Focus.** `GameWindowFocus.TryFocusGameWindow` finds the picked game, or with Automatic the first process with a main window whose key the scanner knows, in whatever order `Process.GetProcesses` returns (two running games pick one arbitrarily), foregrounds it and returns that key. It keeps that `Process`, so `IsForeground` is one `GetWindowThreadProcessId` and `IsRunning` is one `HasExited` instead of a fresh snapshot of every process per simulation. `Finish` calls `Forget`. `ShowWindow(SW_RESTORE)` runs on every focus: it brings back a minimised game, but it also un-maximises a maximised windowed game. Borderless fullscreen windows are usually not maximised in the Win32 sense and keep their size. Foregrounding needs `BringWindowToTop` plus `SetForegroundWindow`, retried inside `AttachThreadInput` when Windows refuses; leave it alone unless tested against a real game.
 - **Pre-select.** With Automatic, `FocusGame` pins the found key into `SelectedGameKey` and sets `_isGameAutoSelected`. `Finish` puts Automatic back, `SaveSettings` never persists a pinned game, and any user pick clears the flag through `OnSelectedGameKeyChanged`.
 - **Guard.** `ExecuteSimulationAsync` skips the whole simulation and logs `Skipped Game Not Focused` unless `GameWindowFocus.IsForeground` matches the target. With Automatic and no game found there is no target, so nothing is sent.
 - With the toggle off, input goes to whatever window has focus.
@@ -173,13 +196,13 @@ The hooks are never uninstalled. Windows removes them when the process exits.
 
 One Randomize toggle covers the per-minute count, burst placement, the shuffled slice of actions, holds and gaps. Mouse glides stay random either way. Burst Activity and the two separate Randomize toggles of 1.3 are gone; nobody could tell them apart.
 
-With Randomize on, `CreateMinuteSchedule` draws the count between half and one and a half times the speed setting, never below one, and hands it to `CreateBurstSchedule`. That drops one to three burst starts anywhere in the minute and scatters the actions around them inside `BurstSpreadSeconds`, then sorts, so quiet stretches sit between clusters instead of an even beat. An exact count every minute for hours is the loudest pattern the app can produce, and it is the one a server notices without inspecting anything Windows knows.
+With Randomize on, `CreateMinuteSchedule` draws the count between half and one and a half times the speed setting, never below one, and hands it to `CreateBurstSchedule`. That drops one to three burst starts anywhere in the minute and scatters the actions around them inside `BurstSpreadSeconds`, then sorts, so quiet stretches sit between clusters instead of an even beat. The burst count comes from `RandomInRange((1, 3))`, so a single burst is the most common minute, and every slot is clamped 0.05 s inside the minute. An exact count every minute for hours is the loudest pattern the app can produce, and it is the one a server notices without inspecting anything Windows knows.
 
-With Randomize off, the actions sit on an even beat at the exact speed setting.
+With Randomize off, the actions sit on an even beat at the exact speed setting, every simulation runs every enabled action in checkbox order with no gap between them, and holds use the midpoint of their range.
 
 `RunScheduleAsync` polls every 250 ms so Pause and Stop stay responsive, and rebuilds the schedule at each minute boundary **and** whenever the speed changes. A burst packs its slots into 8 s while a glide alone can take seconds, so slots missed during a long simulation fire back to back; collapsing them, as 1.3 did, cut speed 10 down to about three actions a minute. A rebuild mid-minute skips the slots already past, and a minute boundary drops whatever is left.
 
-`MaximumQuietSeconds` caps any silence at 60 s by firing an extra action that uses up no slot. Bursts alone can leave about two minutes quiet across a minute boundary, long enough for some games to kick.
+`MaximumQuietSeconds` caps any silence at 60 s by firing an extra action that uses up no slot. Bursts alone can leave about two minutes quiet across a minute boundary, long enough for some games to kick. `NextDueSeconds` returns the earlier of the next slot and the quiet cap, so `Next In` counts down to whichever fires first.
 
 The first action lands about 800 ms late with Switch To Game on, because focusing waits `FocusSettleDelayMilliseconds` after the stopwatch starts. Do not start the stopwatch later to hide that; the focus time belongs to the run.
 
@@ -218,9 +241,9 @@ The scan runs once per process, well under a second. Games installed while the a
 
 ## Run Logs And Settings
 
-`RunLog` writes `Documents\AFK Assist\Logs\Run yyyy-MM-dd HH-mm-ss.txt`. `Open` holds one `StreamWriter` with `AutoFlush` for the whole run, so a crash still leaves every line on disk without reopening the file per line; `Close` ends it. The file keeps milliseconds; the screen shows seconds. `RetentionDays` lives here, the constructor calls `DeleteExpired` off the dispatcher, Clear Log Files deletes all of them, and every call swallows its exceptions.
+`RunLog` writes `Documents\AFK Assist\Logs\Run yyyy-MM-dd HH-mm-ss.txt`. `Open` holds one `StreamWriter` with `AutoFlush` for the whole run, so a crash still leaves every line on disk without reopening the file per line; `Close` ends it. The file keeps milliseconds; the screen shows seconds. `RetentionDays` (30) lives here. `MainViewModel`'s constructor runs `DeleteExpired` through `Task.Run`, which removes `Run *.txt` files whose last write is older than that. Clear Log Files asks first, then deletes every run file. Every call swallows its exceptions, and a file held open elsewhere simply stays.
 
-`UserSettings` is a record with `Load` and `Save` on it, because the record is what gets loaded and saved. It holds everything the window shows, plus the window's own spot, and it writes `%AppData%\AFK Assist\settings.json` from the window's `Closing` handler. `WindowLeft` and `WindowTop` are plain view model properties rather than bound ones; the window fills them in on close and reads them back in its constructor, and a spot whose title bar centre no longer lands on a monitor falls back to `CenterScreen`. Missing properties in an older file fall back to their defaults, which is `false` except for `Randomize`, whose parameter default of `true` keeps a 1.3 file from switching it off. `RestoreSettings` clamps every number to the same limits the window uses, sets Run Until before the boxes because the mode converts them, and the constructor clears the log afterwards because restoring is not activity.
+`UserSettings` is a record with `Load` and `Save` on it, because the record is what gets loaded and saved. It holds everything the window shows, plus the window's own spot, and it writes `%AppData%\AFK Assist\settings.json` from the window's `Closing` handler. Nothing saves earlier, so a crash or a `Stop-Process` loses every edit since launch. `WindowLeft` and `WindowTop` are plain view model properties rather than bound ones; the window fills them in on close and reads them back in its constructor, and a spot whose title bar centre no longer lands on a monitor falls back to `CenterScreen`. Missing properties in an older file fall back to their defaults, which is `false` except for `Randomize`, whose parameter default of `true` keeps a 1.3 file from switching it off. `RestoreSettings` clamps every number to the same limits the window uses, sets Run Until before the boxes because the mode converts them, and the constructor clears the log afterwards because restoring is not activity.
 
 ## UI Conventions
 
@@ -230,7 +253,7 @@ Control ladder, first rung that works wins: a WPF-UI control (`ui:Card`, `ui:But
 
 XAML: `<!-- Name -->` comments above a group, naming its main element only. One attribute per line, aligned under the first.
 
-- **Layout.** Mouse and Keyboard checkboxes sit in the Input card, Move Mouse among the mouse ones, and every on/off behaviour is a toggle in the Options card. The Keyboard column's five rows set the shared row's height, and the Options card stretches to it.
+- **Layout.** Mouse and Keyboard checkboxes sit in the Input card, Move Mouse among the mouse ones, and every on/off behaviour is a toggle in the Options card. The Keyboard column's five rows set the shared row's height, and the Options card stretches to it. The window is 840 DIP wide: a 16 DIP outer margin, a 360 DIP column of cards on the left, 12 DIP gaps everywhere, and the Activity card taking the rest. At 125% it captures at 1050 x 1033 px.
 - **Run mode** is a `ui:ToggleSwitch` between two labels, `Run For` and `Run Until`, at the bottom of the Duration card, with `EndsAtLabel` right-aligned in the same row.
 - **Limits** are `public const double` on `MainViewModel`, bound with `{x:Static}`. Only the Hours maximum is a binding, because it switches between 8 and 23 with the run mode. `RestoreSettings` clamps against the same constants.
 - **Presets** are `Preset` records of value, label and an `IsStartDelay` flag, so both lists share one `PresetChip` template and one `ApplyPresetCommand`. `StartDelayPresets` is fixed; `DurationPresets` swaps with the run mode, from durations to clock jumps where `0` means the next midnight. A chip's `Appearance` is a `MultiBinding` of the preset and both totals, and `PresetAppearanceConverter` picks the one the flag names. `DurationTotalMinutes` is `-1` in Run Until mode so no chip lights up there.
@@ -238,6 +261,7 @@ XAML: `<!-- Name -->` comments above a group, naming its main element only. One 
 - **UI text** is short Title Case with no ending punctuation. Units are one letter hugging the number (`15m`, `3m 12s`).
 - **Log messages** lead with a past-tense verb: `Pressed W Key`, `Enabled Switch To Game`, `Failed To Focus Game`, `Skipped Game Not Focused`. Errors log the exception type, not its message, which is not Title Case and often ends in a full stop.
 - **The Activity log** is an `ItemsControl` inside a `ScrollViewer`, bound to `ObservableCollection<LogEntry>`. There is no selection or hover chrome to strip, and the 150-row cap keeps the un-virtualized list small enough that it never needs a templated `ScrollViewer`; the run file on disk keeps everything. Each entry's `LogKind` colours its message through `DynamicResource` theme brushes, and the timestamp is its own `Auto` column. An empty log shows `No Activity Yet` through a `DataTrigger` on `LogEntries.Count`.
+- **Notices** go through one `ui:InfoBar` that cannot be closed. Validation sets an Error: `Select At Least One Input`, or `Set A Duration` in Run For mode. Switching Randomize off sets the `Randomize Off Raises Detection Risk` warning, and switching it back on clears exactly that message. `Start` clears any notice.
 
 Load-bearing XAML:
 
@@ -267,6 +291,10 @@ There is no UI test harness. **Ask before launching the app** on this machine: i
 - **A stand-in game** — copy `powershell.exe` to a known process key such as `overwatch.exe` and run a WinForms form with a `TextBox`. The scanner already knows the key, so focus, pre-select and the foreground guard can be tested without a real game.
 - **Hooks** — a throwaway console app can install the same hooks, send one injected mouse move and pump messages; the callback must fire and see the injected flag.
 - **Auto pause** cannot be triggered from a script, because scripted input is injected and ignored by design. It needs a real hand on the mouse.
+- **UI Automation names.** Toggles and checkboxes are named by their content (`W Key`, `Switch To Game`, `Randomize`), preset chips by their label (`5s`, `1h`), and the primary button by its current label (`Start`, `Pause`, `Resume`). Find the slider by `ControlType.Slider`, because the name `Speed` hits the card header first. The custom key checkbox holds a `TextBlock` and has no name.
+- **Fixed size.** Drag the right and bottom edges with `SetCursorPos` and `mouse_event`, and compare `GetWindowRect` before and after; nothing may change (1050 x 1033 px at 125%). v1.4 grew to 1300 x 1183 under the same drag.
+- **Screenshots.** `Screenshots/Idle.png` and `Running.png` are `PrintWindow` captures of a Debug build. Idle has W Key and Move Mouse checked, Switch To Game and Randomize on, Speed 5, the `5s` and `1h` presets and an empty log. Every toggle change logs a line, so set the state, close, and capture on a second launch. Running has Switch To Game off with no game open, so input lands on AFK Assist itself, Speed 10 and `15m`. Foreground the window, Start, poll the log until about nine input lines, then capture. Stop at once if the foreground changes, since input would reach another window.
+- **Session launches.** A Debug build started from a session keeps `settings.json` in the MSIX container, but `Documents` is not redirected, so every test run leaves a real `Run *.txt` under `Documents\AFK Assist\Logs`. Remove those afterwards.
 
 ## Comment Style
 
@@ -326,3 +354,6 @@ Read every file the change touches first: code-behind, services, models, interfa
 - `OnRunUntilEnabledChanged` raises `HoursMaximum` by hand before moving the boxes. The generated notification fires only after the partial method, and the Hours box would otherwise clamp a clock hour of 17 to the old maximum of 8.
 - `catch` blocks that swallow everything in `GameScanner`, `RunLog` and `UserSettings` are deliberate. A missing path means "not installed", and a log or settings file must never take the app down.
 - The WASD checkboxes have no fixed text. Their labels are read from the active keyboard layout, so an Azerty user sees Z and Q.
+- `dotnet format analyzers` reports CA1822 for `StartDelayPresets` and the four WASD label properties. They stay instance members: XAML binds them through the `DataContext`, and the layout-change handler refreshes them all with `OnPropertyChanged(string.Empty)`, which a static property would miss. These five infos are expected.
+- The close button exits the app, even mid-run, with no Keep Running dialog; minimising is how it goes to the tray. Closing is also the only thing that saves settings.
+- `RunLog` deletes its own run files after 30 days. That predates the rule against retention jobs and stays, because they are throwaway logs rather than user data.
