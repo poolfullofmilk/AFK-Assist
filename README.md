@@ -1,7 +1,5 @@
 # AFK Assist
 
-A Windows app that keeps your game from kicking you while you are away.
-
 | Idle | Running |
 |---|---|
 | ![Idle](Screenshots/Idle.png) | ![Running](Screenshots/Running.png) |
