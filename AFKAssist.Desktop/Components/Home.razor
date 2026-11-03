@@ -1,0 +1,500 @@
+@* Providers *@
+<MudThemeProvider Theme="AppTheme.Custom"
+                  IsDarkMode
+                  DefaultScrollbar />
+<MudPopoverProvider />
+<MudDialogProvider BackdropClick="false"
+                   CloseButton="true"
+                   CloseOnEscapeKey="true"
+                   MaxWidth="MaxWidth.False" />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="4"
+               Style="background-color:color-mix(in srgb, var(--mud-palette-appbar-background) var(--glass-opacity), transparent); backdrop-filter:var(--glass-blur)">
+        <MudStack Row
+                  AlignItems="AlignItems.Center"
+                  Class="mud-width-full px-2"
+                  Spacing="2">
+            <MudText Typo="Typo.h6"
+                     Class="mud-typography-nowrap mr-4">
+                @AppInfo.DisplayName
+            </MudText>
+
+            @* Help Menu *@
+            <Tooltip Text="Help"
+                     RootClass="d-flex">
+                <MudBadge Dot
+                          Overlap
+                          Color="Color.Error"
+                          Visible="@(_availableUpdate is not null)"
+                          Class="d-flex">
+                    <MudMenu Icon="@Icons.Material.Rounded.Help"
+                             AriaLabel="Help"
+                             Size="Size.Small"
+                             Dense
+                             AnchorOrigin="Origin.BottomLeft"
+                             TransformOrigin="Origin.TopLeft">
+                        @* Project Page *@
+                        <MudMenuItem Icon="@Icons.Custom.Brands.GitHub"
+                                     Label="GitHub Project"
+                                     Href="@AppInfo.RepositoryUrl" />
+                        @* Check Updates *@
+                        <MudMenuItem Icon="@Icons.Material.Rounded.SystemUpdateAlt"
+                                     Label="Check for Updates"
+                                     Class="@UpdateDotClass"
+                                     OnClick="() => CheckForUpdatesAsync(true)" />
+                        <MudDivider />
+                        @* About *@
+                        <MudMenuItem Icon="@Icons.Material.Rounded.Info"
+                                     Label="About"
+                                     OnClick="ShowAboutAsync" />
+                    </MudMenu>
+                </MudBadge>
+            </Tooltip>
+
+            <MudSpacer />
+
+            @* Run State Chip *@
+            @if (MainViewModel.IsRunning)
+            {
+                <MudChip T="string"
+                         Icon="@(MainViewModel.IsPaused ? Icons.Material.Rounded.PauseCircle : Icons.Material.Rounded.PlayCircle)"
+                         Color="@(MainViewModel.IsPaused ? Color.Warning : Color.Success)"
+                         Size="Size.Small"
+                         Variant="Variant.Text"
+                         Class="mr-2">
+                    @(MainViewModel.IsPaused ? "Paused" : "Running")
+                </MudChip>
+            }
+
+            @* Stop Button *@
+            <MudButton Variant="Variant.Text"
+                       Size="Size.Small"
+                       StartIcon="@Icons.Material.Rounded.Stop"
+                       Disabled="@(!MainViewModel.IsRunning)"
+                       OnClick="MainViewModel.Stop">
+                Stop
+            </MudButton>
+
+            @* Start Button *@
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Info"
+                       Size="Size.Small"
+                       StartIcon="@StartIcon"
+                       OnClick="MainViewModel.StartOrPause">
+                @MainViewModel.StartButtonLabel
+            </MudButton>
+        </MudStack>
+    </MudAppBar>
+
+    @* Main Content *@
+    <MudMainContent Class="page-gutter">
+        <MudStack Row
+                  AlignItems="AlignItems.Stretch"
+                  Spacing="6"
+                  Class="page-fill">
+            @* Input Column *@
+            <MudStack Spacing="6"
+                      Class="side-panel">
+                <Header Title="Input">
+                    <MudPaper Elevation="4"
+                              Class="rounded-panel pa-4">
+                        <MudStack Row
+                                  Spacing="2">
+                            <MudStack Spacing="0"
+                                      Style="width:136px">
+                                <MudText Typo="Typo.subtitle2"
+                                         Class="mb-1">
+                                    Mouse
+                                </MudText>
+                                @* Left Click Checkbox *@
+                                <MudCheckBox @bind-Value="MainViewModel.MouseLeftClickEnabled"
+                                             Label="Left Click"
+                                             Color="Color.Info"
+                                             Dense
+                                             Disabled="IsLocked" />
+                                @* Right Click Checkbox *@
+                                <MudCheckBox @bind-Value="MainViewModel.MouseRightClickEnabled"
+                                             Label="Right Click"
+                                             Color="Color.Info"
+                                             Dense
+                                             Disabled="IsLocked" />
+                                @* Move Mouse Checkbox *@
+                                <MudCheckBox T="bool"
+                                             Value="MainViewModel.MouseMovementEnabled"
+                                             ValueChanged="value => MainViewModel.MouseMovementEnabled = value"
+                                             Label="Move Mouse"
+                                             Color="Color.Info"
+                                             Dense
+                                             Disabled="IsLocked" />
+                            </MudStack>
+                            <MudStack Spacing="0"
+                                      Class="flex-grow-1"
+                                      Style="min-width:0">
+                                <MudText Typo="Typo.subtitle2"
+                                         Class="mb-1">
+                                    Keyboard
+                                </MudText>
+                                @* Forward Key Checkbox *@
+                                <MudCheckBox @bind-Value="MainViewModel.ForwardKeyEnabled"
+                                             Label="@MainViewModel.ForwardKeyLabel"
+                                             Color="Color.Info"
+                                             Dense
+                                             Disabled="IsLocked" />
+                                @* Left Key Checkbox *@
+                                <MudCheckBox @bind-Value="MainViewModel.LeftKeyEnabled"
+                                             Label="@MainViewModel.LeftKeyLabel"
+                                             Color="Color.Info"
+                                             Dense
+                                             Disabled="IsLocked" />
+                                @* Backward Key Checkbox *@
+                                <MudCheckBox @bind-Value="MainViewModel.BackwardKeyEnabled"
+                                             Label="@MainViewModel.BackwardKeyLabel"
+                                             Color="Color.Info"
+                                             Dense
+                                             Disabled="IsLocked" />
+                                @* Right Key Checkbox *@
+                                <MudCheckBox @bind-Value="MainViewModel.RightKeyEnabled"
+                                             Label="@MainViewModel.RightKeyLabel"
+                                             Color="Color.Info"
+                                             Dense
+                                             Disabled="IsLocked" />
+                                <MudStack Row
+                                          AlignItems="AlignItems.Center"
+                                          Justify="Justify.SpaceBetween"
+                                          Spacing="1">
+                                    @* Custom Key Checkbox *@
+                                    <MudCheckBox @bind-Value="MainViewModel.CustomKeyEnabled"
+                                                 Label="@MainViewModel.CustomKeyLabel"
+                                                 Color="Color.Info"
+                                                 Dense
+                                                 Class="text-truncate"
+                                                 Disabled="@(IsLocked || !MainViewModel.HasCustomKey)" />
+                                    @* Pick Key Button *@
+                                    <MudButton Variant="Variant.Filled"
+                                               Color="@(MainViewModel.IsCapturingCustomKey ? Color.Info : Color.Default)"
+                                               Size="Size.Small"
+                                               Class="flex-shrink-0"
+                                               Disabled="IsLocked"
+                                               OnClick="CaptureCustomKeyAsync">
+                                        @MainViewModel.CustomKeyButtonLabel
+                                    </MudButton>
+                                </MudStack>
+                            </MudStack>
+                        </MudStack>
+                    </MudPaper>
+                </Header>
+
+                <Header Title="Options">
+                    <MudPaper Elevation="4"
+                              Class="rounded-panel pa-4">
+                        <MudStack Spacing="2">
+                            @* Switch To Game Switch *@
+                            <MudSwitch T="bool"
+                                       Value="MainViewModel.SwitchToGameEnabled"
+                                       ValueChanged="value => MainViewModel.SwitchToGameEnabled = value"
+                                       Color="Color.Info"
+                                       Disabled="IsLocked"
+                                       Class="ma-0">
+                                <MudText Typo="Typo.subtitle2"
+                                         HtmlTag="span"
+                                         Class="d-inline-flex align-center">
+                                    Switch To Game
+                                    <InfoIcon Text="Brings the game to the front and only sends input while it stays there" />
+                                </MudText>
+                            </MudSwitch>
+                            @* Game Select *@
+                            <MudElement HtmlTag="div"
+                                        Class="game-select">
+                                <MudSelect T="string"
+                                           Value="MainViewModel.SelectedGameKey"
+                                           ValueChanged="value => MainViewModel.SelectedGameKey = value"
+                                           ToStringFunc="GameNameOf"
+                                           Variant="Variant.Outlined"
+                                           Margin="Margin.Dense"
+                                           Dense
+                                           AnchorOrigin="Origin.BottomLeft"
+                                           TransformOrigin="Origin.TopLeft"
+                                           aria-label="Game"
+                                           Disabled="@(IsLocked || !MainViewModel.SwitchToGameEnabled)">
+                                    @foreach (var game in MainViewModel.AvailableGames)
+                                    {
+                                        <MudSelectItem Value="game.Key">@game.Value</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </MudElement>
+                            <MudDivider Class="my-1" />
+                            @* Randomize Switch *@
+                            <MudSwitch T="bool"
+                                       Value="MainViewModel.RandomizeEnabled"
+                                       ValueChanged="value => MainViewModel.RandomizeEnabled = value"
+                                       Color="Color.Info"
+                                       Disabled="IsLocked"
+                                       Class="ma-0">
+                                <MudText Typo="Typo.subtitle2"
+                                         HtmlTag="span"
+                                         Class="d-inline-flex align-center">
+                                    Randomize
+                                    <InfoIcon Text="Varies timing, counts, holds and order the way a person would" />
+                                </MudText>
+                            </MudSwitch>
+                            <MudDivider Class="my-1" />
+                            @* Hold Keys Switch *@
+                            <MudSwitch T="bool"
+                                       Value="MainViewModel.HoldKeysEnabled"
+                                       ValueChanged="value => MainViewModel.HoldKeysEnabled = value"
+                                       Color="Color.Info"
+                                       Disabled="IsLocked"
+                                       Class="ma-0">
+                                <MudText Typo="Typo.subtitle2"
+                                         HtmlTag="span"
+                                         Class="d-inline-flex align-center">
+                                    Hold Keys Longer
+                                    <InfoIcon Text="Holds each key for one to three seconds instead of a tap" />
+                                </MudText>
+                            </MudSwitch>
+                        </MudStack>
+                    </MudPaper>
+                </Header>
+            </MudStack>
+
+            @* Timing Column *@
+            <MudElement HtmlTag="div"
+                        Class="side-panel">
+                <Header Title="Timing">
+                    <MudStack Spacing="3">
+                        @* Speed Card *@
+                        <MudPaper Elevation="4"
+                                  Class="rounded-panel pa-4">
+                            <MudStack Spacing="2">
+                                <MudStack Row
+                                          Justify="Justify.SpaceBetween"
+                                          AlignItems="AlignItems.Center">
+                                    <MudText Typo="Typo.subtitle2">Speed</MudText>
+                                    <MudText Typo="Typo.body2"
+                                             Class="mud-text-secondary">
+                                        @MainViewModel.SpeedLabel
+                                    </MudText>
+                                </MudStack>
+                                @* Speed Slider *@
+                                <MudSlider @bind-Value="MainViewModel.SimulationsPerMinute"
+                                           Min="MainViewModel.MinimumSpeed"
+                                           Max="MainViewModel.MaximumSpeed"
+                                           Step="1"
+                                           TickMarks
+                                           Color="Color.Info"
+                                           aria-label="Speed"
+                                           Disabled="IsLocked" />
+                            </MudStack>
+                        </MudPaper>
+
+                        @* Start Delay Card *@
+                        <MudPaper Elevation="4"
+                                  Class="rounded-panel pa-4">
+                            <MudStack Spacing="2">
+                                <MudStack Row
+                                          Justify="Justify.SpaceBetween"
+                                          AlignItems="AlignItems.Center">
+                                    <MudText Typo="Typo.subtitle2">Start Delay</MudText>
+                                    <PresetRow Presets="MainViewModel.StartDelayPresets"
+                                               Disabled="IsLocked"
+                                               OnPicked="MainViewModel.ApplyPreset" />
+                                </MudStack>
+                                <MudStack Row
+                                          Spacing="3">
+                                    <MudStack Spacing="1"
+                                              Class="flex-1">
+                                        @* Start Delay Minutes Field *@
+                                        <NumberField T="int"
+                                                     @bind-Value="MainViewModel.StartDelayMinutes"
+                                                     Min="0"
+                                                     Max="MainViewModel.MaximumMinutes"
+                                                     Margin="Margin.Dense"
+                                                     Immediate
+                                                     aria-label="Start Delay Minutes"
+                                                     Disabled="IsLocked" />
+                                        <MudText Typo="Typo.caption"
+                                                 Class="mud-text-secondary">
+                                            Minutes
+                                        </MudText>
+                                    </MudStack>
+                                    <MudStack Spacing="1"
+                                              Class="flex-1">
+                                        @* Start Delay Seconds Field *@
+                                        <NumberField T="int"
+                                                     @bind-Value="MainViewModel.StartDelaySeconds"
+                                                     Min="0"
+                                                     Max="MainViewModel.MaximumSeconds"
+                                                     Margin="Margin.Dense"
+                                                     Immediate
+                                                     aria-label="Start Delay Seconds"
+                                                     Disabled="IsLocked" />
+                                        <MudText Typo="Typo.caption"
+                                                 Class="mud-text-secondary">
+                                            Seconds
+                                        </MudText>
+                                    </MudStack>
+                                </MudStack>
+                            </MudStack>
+                        </MudPaper>
+
+                        @* Duration Card *@
+                        <MudPaper Elevation="4"
+                                  Class="rounded-panel pa-4">
+                            <MudStack Spacing="2">
+                                <MudStack Row
+                                          Justify="Justify.SpaceBetween"
+                                          AlignItems="AlignItems.Center">
+                                    <MudText Typo="Typo.subtitle2">Duration</MudText>
+                                    <PresetRow Presets="MainViewModel.DurationPresets"
+                                               Disabled="IsLocked"
+                                               OnPicked="MainViewModel.ApplyPreset" />
+                                </MudStack>
+                                <MudStack Row
+                                          Spacing="3">
+                                    <MudStack Spacing="1"
+                                              Class="flex-1">
+                                        @* Duration Hours Field *@
+                                        <NumberField T="int"
+                                                     @bind-Value="MainViewModel.DurationHours"
+                                                     Min="0"
+                                                     Max="MainViewModel.HoursMaximum"
+                                                     Margin="Margin.Dense"
+                                                     Immediate
+                                                     aria-label="Duration Hours"
+                                                     Disabled="IsLocked" />
+                                        <MudText Typo="Typo.caption"
+                                                 Class="mud-text-secondary">
+                                            Hours
+                                        </MudText>
+                                    </MudStack>
+                                    <MudStack Spacing="1"
+                                              Class="flex-1">
+                                        @* Duration Minutes Field *@
+                                        <NumberField T="int"
+                                                     @bind-Value="MainViewModel.DurationMinutes"
+                                                     Min="0"
+                                                     Max="MainViewModel.MaximumMinutes"
+                                                     Margin="Margin.Dense"
+                                                     Immediate
+                                                     aria-label="Duration Minutes"
+                                                     Disabled="IsLocked" />
+                                        <MudText Typo="Typo.caption"
+                                                 Class="mud-text-secondary">
+                                            Minutes
+                                        </MudText>
+                                    </MudStack>
+                                </MudStack>
+                                <MudStack Row
+                                          AlignItems="AlignItems.Center"
+                                          Justify="Justify.SpaceBetween">
+                                    <MudStack Row
+                                              AlignItems="AlignItems.Center"
+                                              Spacing="0">
+                                        <MudText Typo="Typo.body2"
+                                                 Class="mr-3">
+                                            Run For
+                                        </MudText>
+                                        @* Run Until Switch *@
+                                        <MudSwitch T="bool"
+                                                   Value="MainViewModel.RunUntilEnabled"
+                                                   ValueChanged="value => MainViewModel.RunUntilEnabled = value"
+                                                   Color="Color.Info"
+                                                   aria-label="Run Until"
+                                                   Disabled="IsLocked"
+                                                   Class="ma-0" />
+                                        <MudText Typo="Typo.body2">Run Until</MudText>
+                                    </MudStack>
+                                    <MudText Typo="Typo.body2"
+                                             Class="mud-text-secondary">
+                                        @MainViewModel.EndsAtLabel
+                                    </MudText>
+                                </MudStack>
+                            </MudStack>
+                        </MudPaper>
+                    </MudStack>
+                </Header>
+            </MudElement>
+
+            @* Activity Column *@
+            <MudStack Spacing="6"
+                      Class="main-panel fill-column">
+                <Header Title="Run">
+                    <TimePanel />
+                </Header>
+
+                <Header Title="Activity"
+                        Class="fill fill-column">
+                    <TitleContent>
+                        <MudSpacer />
+                        @* Open Folder Button *@
+                        <MudButton Variant="Variant.Text"
+                                   Size="Size.Small"
+                                   StartIcon="@Icons.Material.Rounded.Folder"
+                                   OnClick="OpenLogFolder">
+                            Open Folder
+                        </MudButton>
+                        @* Clear Logs Button *@
+                        <MudButton Variant="Variant.Text"
+                                   Size="Size.Small"
+                                   StartIcon="@Icons.Material.Rounded.DeleteSweep"
+                                   OnClick="ClearLogFilesAsync">
+                            Clear Logs
+                        </MudButton>
+                    </TitleContent>
+                    <ChildContent>
+                        @if (MainViewModel.Notice is { } notice)
+                        {
+                            <MudAlert Severity="LogKindColors.SeverityOf(notice.Kind)"
+                                      Dense
+                                      Elevation="4"
+                                      Class="rounded-panel">
+                                @notice.Message
+                            </MudAlert>
+                        }
+                        @* Log Panel *@
+                        <MudPaper Elevation="4"
+                                  Class="rounded-panel panel-flush fill">
+                            @if (MainViewModel.LogEntries.Count == 0)
+                            {
+                                <MudStack AlignItems="AlignItems.Center"
+                                          Justify="Justify.Center"
+                                          Class="mud-height-full">
+                                    <MudText Typo="Typo.body2"
+                                             Class="mud-text-disabled">
+                                        No Activity Yet
+                                    </MudText>
+                                </MudStack>
+                            }
+                            else
+                            {
+                                <MudElement HtmlTag="div"
+                                            Class="log-scroll">
+                                    <MudStack Spacing="0"
+                                              Class="py-2">
+                                        @foreach (var entry in MainViewModel.LogEntries)
+                                        {
+                                            <MudStack Row
+                                                      Spacing="3"
+                                                      Class="px-4 py-1">
+                                                <MudText Typo="Typo.body2"
+                                                         Class="log-time mud-text-disabled">
+                                                    @entry.Time
+                                                </MudText>
+                                                <MudText Typo="Typo.body2"
+                                                         Class="@($"text-truncate {LogKindColors.TextClassOf(entry.Kind)}")">
+                                                    @entry.Message
+                                                </MudText>
+                                            </MudStack>
+                                        }
+                                    </MudStack>
+                                </MudElement>
+                            }
+                        </MudPaper>
+                    </ChildContent>
+                </Header>
+            </MudStack>
+        </MudStack>
+    </MudMainContent>
+</MudLayout>

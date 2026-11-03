@@ -1,0 +1,36 @@
+<MudDialog>
+
+    <TitleContent>
+        <MudText Typo="Typo.h6">About</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudStack Spacing="4">
+            <MudStack Spacing="0">
+                <MudText Typo="Typo.h5">@AppInfo.DisplayName</MudText>
+                <MudText Typo="Typo.body2"
+                         Class="mud-text-secondary">
+                    @($"Version {AppInfo.VersionText} · {AppInfo.Author}")
+                </MudText>
+            </MudStack>
+            <MudText Typo="Typo.body1"
+                     Class="text-relaxed">
+                Keeps a game from marking you idle by pressing keys, clicking and gliding the mouse on a human schedule while you are away
+            </MudText>
+            @* Project Link *@
+            <MudStack Row>
+                <MudButton Variant="Variant.Filled"
+                           Color="Color.Info"
+                           Size="Size.Small"
+                           StartIcon="@Icons.Custom.Brands.GitHub"
+                           Href="@AppInfo.RepositoryUrl">
+                    GitHub Project
+                </MudButton>
+            </MudStack>
+            <MudText Typo="Typo.caption"
+                     Class="mud-text-secondary">
+                Anti-cheat can tell simulated input apart from real input
+            </MudText>
+        </MudStack>
+    </DialogContent>
+
+</MudDialog>

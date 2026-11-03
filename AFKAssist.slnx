@@ -1,0 +1,5 @@
+<Solution>
+    <Project Path="AFKAssist.Data/AFKAssist.Data.csproj" />
+    <Project Path="AFKAssist.Services/AFKAssist.Services.csproj" />
+    <Project Path="AFKAssist.Desktop/AFKAssist.Desktop.csproj" />
+</Solution>

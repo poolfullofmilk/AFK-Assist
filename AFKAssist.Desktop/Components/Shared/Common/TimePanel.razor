@@ -1,0 +1,33 @@
+@* Time Panel *@
+<MudPaper Elevation="4"
+          Class="rounded-panel pa-4">
+    <MudStack Spacing="3">
+        <MudStack Row
+                  Justify="Justify.SpaceBetween"
+                  AlignItems="AlignItems.End">
+            <MudStack Spacing="0">
+                <MudText Typo="Typo.caption"
+                         Class="mud-text-secondary">
+                    Elapsed
+                </MudText>
+                <MudText Typo="Typo.h6">@MainViewModel.ElapsedLabel</MudText>
+            </MudStack>
+            <MudText Typo="Typo.body2"
+                     Class="mud-text-secondary pb-1">
+                @MainViewModel.NextActionLabel
+            </MudText>
+            <MudStack Spacing="0"
+                      AlignItems="AlignItems.End">
+                <MudText Typo="Typo.caption"
+                         Class="mud-text-secondary">
+                    Remaining
+                </MudText>
+                <MudText Typo="Typo.h6">@MainViewModel.RemainingLabel</MudText>
+            </MudStack>
+        </MudStack>
+        <MudProgressLinear Value="MainViewModel.ProgressPercentage"
+                           Color="Color.Info"
+                           Size="Size.Small"
+                           Rounded />
+    </MudStack>
+</MudPaper>

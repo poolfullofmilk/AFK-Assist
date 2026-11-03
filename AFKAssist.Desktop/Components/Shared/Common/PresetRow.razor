@@ -1,0 +1,14 @@
+@* Preset Buttons *@
+<MudElement HtmlTag="div"
+            Class="setting-choices">
+    @foreach (var preset in Presets)
+    {
+        <MudButton Variant="Variant.Filled"
+                   Color="@(MainViewModel.IsPresetActive(preset) ? Color.Info : Color.Default)"
+                   Size="Size.Small"
+                   Disabled="Disabled"
+                   OnClick="() => OnPicked.InvokeAsync(preset)">
+            @preset.Label
+        </MudButton>
+    }
+</MudElement>

@@ -8,71 +8,73 @@ Work directly on `master`. Never create a branch or a worktree unless explicitly
 
 Commits are a single Title Case sentence. No body, no bullet list, no `Co-Authored-By` trailer, no emoji.
 
+Only `poolfullofmilk <70652416+poolfullofmilk@users.noreply.github.com>` commits and pushes here, absolutely no other account. The `pre-commit` and `pre-push` guards from `~/.gitconfig-poolfullofmilk` enforce it; never bypass them, and stop if one refuses.
+
 ## What This Is
 
-A single-project .NET 10 WPF desktop app that keeps a game from marking you idle. It presses keys, clicks and glides the mouse on a jittered schedule while you are away.
+A .NET 10 desktop app that keeps a game from marking you idle. It presses keys, clicks and glides the mouse on a jittered schedule while you are away.
 
 Most competitive games kick a player after a few minutes without input. Some only count mouse activity, some only keyboard, so every input is independently selectable.
 
-The UI is Fluent through WPF-UI. Version 4 was Windows Forms; do not look for `Form.cs`, `Interop.cs` or `RandomDelay.cs`, they are gone.
+Since 1.7 it is laid out like `SoTF.Editor`: a WPF window hosts a `BlazorWebView` whose whole UI is MudBlazor, in the shared dark theme. Up to 1.6 it was a single WPF-UI project; do not look for `Views/`, `ViewModels/`, `PresetAppearanceConverter` or CommunityToolkit.Mvvm, they are gone.
 
 The window is `Topmost` on purpose. It is meant to sit over a game while you set it up.
+
+| Project | Holds |
+|---|---|
+| `AFKAssist.Data` (`net10.0`) | `Helpers` (`AppInfo`, `Formatter`), `Enums` (`LogKind`, `ActionKind`), `ViewModels` (`LogEntry`, `Preset`, `Notice`, `ReleaseInfo`, `SimulationAction`) |
+| `AFKAssist.Services` (`net10.0-windows`) | `Simulation/MainViewModel` (all run logic), `Input` (`InputSimulator`, `UserActivity`), `Games` (`GameScanner`, `GameWindowFocus`), `Storage` (`UserSettings`, `RunLog`), `Integration/Updater` |
+| `AFKAssist.Desktop` | `App` (single instance, startup, DI), `MainWindow` (WebView2 host, tray, place), `Components` (`Home` and `Shared`), `Theming` (`AppTheme`, `LogKindColors`), `Interop` (`TrayMenu`, `WindowCaptionTheme`, `Explorer`), `wwwroot` |
+
+Packages: MudBlazor and `Microsoft.AspNetCore.Components.WebView.Wpf`, nothing else. No MVVM toolkit, no NLog: `RunLog` covers both run files and failures. `UseWindowsForms` is only for `NotifyIcon`; the csproj removes the `System.Drawing` and `System.Windows.Forms` global usings, and code reaches them through `Drawing` and `Forms` aliases.
 
 ## Build, Run, Test
 
 ```
-dotnet build
+dotnet build AFKAssist.slnx
 ```
 
-`AFK Assist.slnx` only points at the one `.csproj`. Build either.
+```
+dotnet run --project AFKAssist.Desktop
+```
 
-`AllowUnsafeBlocks` is required twice over. The `LibraryImport` source generator emits unsafe marshalling for every P/Invoke, and `UserActivity` takes the address of `[UnmanagedCallersOnly]` methods to hand Windows its hook callbacks.
+`AllowUnsafeBlocks` is required in Services and Desktop. The `LibraryImport` source generator emits unsafe marshalling for every P/Invoke, and `UserActivity` takes the address of `[UnmanagedCallersOnly]` methods to hand Windows its hook callbacks.
 
 There is no test project and none is wanted. `GameScanner`'s static constructor runs `Debug.Assert(SelfTestPasses())`, covering name normalization, executable scoring, display names and the reject list. It only fires in Debug. Change any of those and extend the self-test in the same file.
 
-To exercise the scanner without the UI, compile `Services/GameScanner.cs` into a throwaway console project and print `GameScanner.InstalledGames`. It is `internal`, so include the source file rather than referencing the exe.
+To exercise the scanner without the UI, write a file-based app in the scratchpad with `#:project` on `AFKAssist.Services` and print `GameScanner.InstalledGames`; it is `internal`, so add an `InternalsVisibleTo` there only for that run, or include the source file instead.
+
+A Debug build uses `AFK Assist Debug` for its settings, WebView2 profile and logs (`AppInfo.FolderName`), and its own single instance handle, so it never touches the installed app's files.
 
 ## Shipping A Single Executable
 
 ```
-dotnet publish -c Release
+dotnet publish AFKAssist.Desktop -c Release
 ```
 
-The result is one self-contained file at `bin\Release\net10.0-windows\win-x64\publish\AFK Assist.exe`. Five `.csproj` properties produce it, all five required, and they sit in a Release-only `PropertyGroup` so a plain `dotnet build` copies the app instead of the whole runtime:
+The result is one self-contained file, `AFKAssist.Desktop\bin\Release\net10.0-windows10.0.17763.0\win-x64\publish\AFKAssist_v<Version>.exe`, about 80 MB. The Release-only `PropertyGroup` holds `AssemblyName`, `RuntimeIdentifier`, `SelfContained`, `PublishSingleFile`, `IncludeNativeLibrariesForSelfExtract`, `IncludeAllContentForSelfExtract` and `EnableCompressionInSingleFile`, so a plain `dotnet build` stays a fast normal build. `BundleWebRoot` packs `wwwroot` inside the exe and `RemoveLooseWebRoot` deletes the loose copy, so the publish folder holds only the exe. Never use `PublishTrimmed` or Native AOT with WPF.
 
-| Property | Effect if removed |
-| --- | --- |
-| `SelfContained` | Target machine must have .NET 10 installed |
-| `RuntimeIdentifier` | Cannot self-contain without a concrete target; `win-x64` here |
-| `PublishSingleFile` | Publish folder fills with loose runtime DLLs |
-| `IncludeNativeLibrariesForSelfExtract` | WPF's native libraries land beside the exe |
-| `EnableCompressionInSingleFile` | Exe roughly doubles in size |
+`<Version>` in `AFKAssist.Desktop.csproj` is the release version with two parts, currently `1.8`, tagged `v1.8`. `AppInfo.Version` reads it from the entry assembly, which pads it to `1.8.0.0`; the `v1.8` tag parses as `1.8`, which sorts below `1.8.0.0` because unset parts count as lower, so a release never flags itself. Bump `<Version>` together with the release tag.
 
-Do not reach for `PublishTrimmed` or Native AOT. WPF is not trim-safe and is unsupported under AOT.
+`AddCommitMetadata` stamps the commit the build came from (`SourceRevisionId`, which the SDK reads from git) into `AssemblyMetadata` `Commit`, so the update dialog can list every commit title since the installed build. Publish after committing, or the stamp names the commit before the change. `IncludeSourceRevisionInInformationalVersion` stays false so the product version reads plain.
 
-`<AssemblyName>`, `<RootNamespace>`, `<Product>` and `<Company>` are not in the project because the SDK defaults already produce `AFK Assist` and `AFK_Assist`.
-
-`<Version>` is the release version with two parts, currently `1.6`, tagged `v1.6`. `UpdateChecker.CurrentVersion` reads it back through `Assembly.GetName().Version`, which pads it to `1.6.0.0`; the `v1.6` tag parses as `1.6`, which sorts below `1.6.0.0` because unset parts count as lower, so a release never flags itself. Dialogs print two parts. A tag without a minor part, like the old `v1`, does not parse at all. Bump `<Version>` together with the release tag.
-
-`DebugType` is `embedded`, so symbols ride inside the single file and Debug builds keep them. `SatelliteResourceLanguages` is `en`, which drops 8 MB of translated WPF exception strings from an app whose own text is English only.
-
-Debug builds land at `bin\Debug\net10.0-windows\AFK Assist.exe`, with no runtime identifier folder.
+`app.manifest` makes the window per monitor DPI aware (`PerMonitorV2`), or Windows stretched it as a bitmap on a monitor scaled differently. WinForms warns about that with WFO0003, which `NoWarn` silences: only its `NotifyIcon` is used, never a WinForms window.
 
 ## Releasing
 
-The owner asks for each release. The order is: `git pull` (the owner edits the README on GitHub), fresh screenshots, the README, bump `<Version>` and the version paragraph above, commit, push, `dotnet publish -c Release`, launch the exe alone from an empty folder, then:
+The owner asks for each release. The order is: `git pull` (the owner edits the README on GitHub), fresh screenshots, the README, bump `<Version>` and the version paragraph above, commit, push, `dotnet publish AFKAssist.Desktop -c Release`, launch the exe alone from an empty folder, then:
 
 ```
-gh release create vX.Y "AFK.Assist.vX.Y.exe" --target master --title "AFK Assist vX.Y" --notes ""
+gh release create vX.Y "AFKAssist.Desktop/bin/Release/net10.0-windows10.0.17763.0/win-x64/publish/AFKAssist_vX.Y.exe" --target master --title "AFK Assist vX.Y" --notes ""
 ```
 
-- The project keeps the SDK assembly name, so the publish output is `AFK Assist.exe`. Copy it to `AFK.Assist.vX.Y.exe` before uploading, which is the name GitHub would make of `AFK Assist vX.Y.exe` anyway and matches every earlier asset.
+- The asset must keep the name `AFKAssist_vX.Y.exe`: the updater downloads `releases/download/<tag>/AFKAssist_<tag>.exe` and checks it against the `digest` GitHub lists for that name. Up to 1.6 the assets were `AFK.Assist.vX.Y.exe`; those installs only open the release page.
 - The body is empty and the exe is the only asset. Nothing in the release, the tag or the commit mentions an AI.
-- The owner keeps only the newest release. When asked, remove the old ones with `gh release delete vOld --cleanup-tag --yes` and prune local tags with `git fetch --prune --prune-tags`. `releases/latest` keeps working for the update check.
-- A Release exe launched from a session can write the owner's real `%AppData%\AFK Assist\settings.json` when it closes. End the test launch with `Stop-Process`, which skips `Closing` and saves nothing.
-- The README follows WifiWatch: sentence case, the name, a one-line tagline, an `Idle | Running` screenshot table, then `Features`, `Quick start`, `⚠️ Important` and `Technical details` with one to three bullets each.
+- The owner keeps only the newest release: once the new one is live, `gh release delete vOld --cleanup-tag --yes` and `git fetch --prune --prune-tags`. `releases/latest` keeps working for the update check.
+- A Release exe launched from a session reads and writes the owner's real `%AppData%\AFK Assist`. End the test launch with `Stop-Process`, which skips `Closing` and saves nothing.
+- The README is sentence case: the name, an `Idle | Running` screenshot table, then `Features`, `Quick start`, `⚠️ Important` and `Technical details` with one to three bullets each.
 
-`Icon.ico` is both the `ApplicationIcon` and a WPF `Resource` shown in the title bar. Its first frame is 32 px because `ui:ImageIcon` decodes the first frame only.
+`Icon.ico` is the `ApplicationIcon`; the tray reads it back with `Icon.ExtractAssociatedIcon(Environment.ProcessPath)`.
 
 ## Formatting
 
@@ -82,43 +84,23 @@ Run after every change, before reporting work as done:
 csharpier format .
 ```
 
-It is a global tool, invoked as `csharpier`, not `dotnet csharpier`. It formats C# and rewrites the `.csproj`; do not hand-indent project files. `.csharpierignore` keeps it off XAML, which follows the rules in [UI Conventions](#ui-conventions) instead of its own layout.
-
-## Project Layout
-
-```
-AFK Assist.csproj / .slnx
-App.xaml                              Application entry, WPF-UI dictionaries, dark until the watcher runs
-Views/MainWindow.xaml(.cs)            The only window
-Views/PresetAppearanceConverter.cs    Highlights the active preset chip
-ViewModels/MainViewModel.cs           All application logic
-Services/InputSimulator.cs            SendInput keys, clicks and mouse movement
-Services/UserActivity.cs              Low-level hooks that notice real hands
-Services/GameWindowFocus.cs           Foregrounds a running game, checks the foreground
-Services/GameScanner.cs               Finds installed games on disk
-Services/UpdateChecker.cs             GitHub latest-release comparison
-Services/UserSettings.cs              Settings persisted to %AppData%
-Services/RunLog.cs                    One text file per run under Documents
-Screenshots/Idle.png, Running.png     README screenshots, 1050 x 1033 px at 125%
-Icon.ico                              App icon and title bar image
-README.md, LICENSE.txt                GitHub page and GPL-3.0
-.csharpierignore                      Keeps CSharpier off XAML
-```
-
-No dependency injection, navigation, messenger or repository layer. One window, one view model, seven services. Keep it that way.
+It formats C#, XAML and the project files. `.razor` files follow the markup rules instead; check them with `powershell -File ~/.claude/scripts/RazorStyle.ps1`.
 
 ## Threading Model
 
-Everything in `MainViewModel` runs on the WPF dispatcher. It starts its loops from UI-thread command handlers and never calls `ConfigureAwait(false)` itself, so every continuation returns to the dispatcher. That is why there is no `Invoke`, no `CheckAccess` and no locking.
+Everything in `MainViewModel` runs on the WPF dispatcher. `App` constructs it on the UI thread, Blazor runs its components and event handlers on that same dispatcher, and the tray menu calls in from it too. It starts its loops from those handlers and never calls `ConfigureAwait(false)` itself, so every continuation returns to the dispatcher. That is why there is no `Invoke`, no `CheckAccess` and no locking.
+
+`MainViewModel` is a plain class: setters with side effects (`RunUntilEnabled`, the toggles that log, `SelectedGameKey`, the duration boxes) use the C# 14 `field` keyword, and the page reads properties directly. It raises `Changed` when anything the page shows moves from outside a page event (log lines, run state, the game scan) and `Ticked` once a second while running. `Home` re-renders on `Changed`; only `TimePanel` listens to `Ticked`, so the clock never redraws the whole page.
 
 The deliberate exceptions:
 
 - `LoadAvailableGamesAsync` touches `GameScanner.InstalledGames` inside `Task.Run`, which is what starts the disk scan off the dispatcher. The `Lazy<T>` uses `PublicationOnly`, so a scan that throws is retried on the next access instead of cached as a permanent failure.
 - `InputSimulator` awaits with `ConfigureAwait(false)` throughout. One glide is hundreds of steps, and posting each continuation to the dispatcher put that many messages ahead of rendering for a loop that only touches locals and `SendInput`. The seam still holds: `ExecuteSimulationAsync` awaits the action without it, so the log and the counters are back on the UI thread.
 - Key and click holds await `Task.Delay` **without** a cancellation token. Cancelling mid-hold would leave the key stuck down inside the game. With Hold Keys Longer a hold lasts up to 3 s, so Stop can take that long to settle; that is still correct.
-- `UserActivity`'s hook callbacks run on the UI thread, because that is the thread that installed them. Windows skips a hook that stalls past its timeout, so a blocked dispatcher briefly blinds auto pause rather than freezing the mouse.
+- `UserActivity`'s hook callbacks run on the UI thread, because that is the thread that installed them (`App` builds the view model there on purpose). Windows skips a hook that stalls past its timeout, so a blocked dispatcher briefly blinds auto pause rather than freezing the mouse.
+- `Updater.DownloadAsync` runs on the thread pool and reports progress through `Progress<T>`.
 
-`Start()` fire-and-forgets `RunAsync` with `_ = `. An async `[RelayCommand]` blocks re-entry while it runs, which would kill the Pause button for the whole run. `RunAsync` catches everything itself.
+`Start()` fire-and-forgets `RunAsync` with `_ = `, so the Start button returns at once and stays live as Pause. `RunAsync` catches everything itself.
 
 ## Run Lifecycle
 
@@ -127,12 +109,12 @@ The deliberate exceptions:
 - **Start delay** restarts the stopwatch when it ends, so the delay is never billed to the duration.
 - **Run For** finishes when the stopwatch passes the Hours and Minutes boxes. Pauses stop the stopwatch, so paused time does not count.
 - **Run Until** reuses the same two boxes as a clock time. `_stopAt` is captured at `Start` and recaptured whenever the boxes change, never recomputed per tick: the next occurrence of a clock time rolls to tomorrow the instant it passes, and a per-tick lookup would never finish. Clock time keeps running while paused, so this mode can finish during a pause. Flipping the switch converts the boxes, rounding a clock time up and a duration down so flipping back and forth is stable.
-- **Pause** unlocks every card through `CanEditConfiguration`. Nothing is captured at `Start` that an edit would miss: the clock reads the boxes each tick, the schedule rebuilds on a speed change and keys are built per simulation. Resume re-validates first.
+- **Pause** unlocks every input through `CanEditConfiguration`. Nothing is captured at `Start` that an edit would miss: the clock reads the boxes each tick, the schedule rebuilds on a speed change and keys are built per simulation. Resume re-validates first.
 - **Auto pause** happens when `UserActivity.LastInputTick` moves past `_ignoreInputUntilTick`, a 3 s grace set whenever the clock starts or a resume happens. **Auto resume** happens after 5 s without input, and only for an auto pause; a manual pause stays paused.
 
-The Elapsed and Remaining labels hide leading units that are zero and pad nothing: `5s`, `3m 12s`, `1h 0m 12s`. Seconds always show.
+The Elapsed and Remaining labels hide leading units that are zero and pad nothing: `5s`, `3m 12s`, `1h 0m 12s` (`Formatter.FormatDuration`). Seconds always show.
 
-`EndsAtLabel` reads `Ends At 18h20` under the run mode switch, in both modes: the captured `_stopAt` in Run Until, the clock plus the remaining time in Run For. It refreshes every tick while a run is on, and on an edit while it is off. `NextActionLabel` counts down to `_nextDueSeconds` beside the Activity header, and is empty until the schedule loop sets it.
+`EndsAtLabel` reads `Ends At 18h20` (`Formatter.FormatClock`) beside the run mode switch, in both modes: the captured `_stopAt` in Run Until, the clock plus the remaining time in Run For. While running it raises `Changed` only when its minute moves. `NextActionLabel` counts down to `_nextDueSeconds` in the Run panel, and is empty until the schedule loop sets it; inside a burst whose next slot is already due it reads `Next In 0s`.
 
 A run that finds its game gone, rather than merely unfocused, ends itself with `Stopped Game Closed`. `Finish` then logs one `Sent ... Keys ... Clicks ... Moves In ...` line from `_sentCounts`, which `Start` clears.
 
@@ -145,11 +127,11 @@ A run that finds its game gone, rather than merely unfocused, ends itself with `
 
 Setting only one breaks half the games. Do not go back to `keybd_event`.
 
-**Movement keys** are defined by scan code only, fixed on the physical WASD positions (`0x11`, `0x1E`, `0x1F`, `0x20`). `FromScanCode` asks `MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK)` for the virtual key, so Azerty sends Z and Q, Dvorak sends its own letters, and nothing needs a layout toggle. The labels come from the same scan codes, and `InputLanguageChanged` refreshes every binding when the layout switches, though that event only fires while the app has focus.
+**Movement keys** are defined by scan code only, fixed on the physical WASD positions (`0x11`, `0x1E`, `0x1F`, `0x20`). `FromScanCode` asks `MapVirtualKeyW(scanCode, MAPVK_VSC_TO_VK)` for the virtual key, so Azerty sends Z and Q, Dvorak sends its own letters, and nothing needs a layout toggle. The labels come from the same scan codes and are read on every render; the window calls `RefreshKeyNames` each time it is activated, which is when a layout switch made elsewhere shows up.
 
 **Custom key** starts from a virtual key. `FromVirtualKey` looks the scan code up with `MapVirtualKeyW` and sets `SimulatedKey.IsExtended` from an explicit range, because `MAPVK_VK_TO_VSC_EX` does not flag arrows, Insert, Delete, Home, End or Page Up/Down; without `KEYEVENTF_EXTENDEDKEY` those land on the number pad.
 
-**Key names** are cached per key, because they are read for every label and every log line; the `InputLanguageChanged` handler calls `ForgetKeyNames` since a layout switch renames them. They come from `GetKeyNameTextW` with the scan code and extended bit, so labels read `W`, `Left`, `1` and `F9` in the active layout instead of `KeyInterop` names like `D1` or `OemTilde`. Names too long for the custom key row (`Caps Lock`, `Page Up`, `Backspace`, ...) are replaced by keycap short names from `s_shortKeyNames`, keyed by virtual key because layout names are localized. The checkbox text also trims with an ellipsis for anything unlisted.
+**Key names** are cached per key, because they are read for every label and every log line; `RefreshKeyNames` calls `ForgetKeyNames` since a layout switch renames them. They come from `GetKeyNameTextW` with the scan code and extended bit, so labels read `W`, `Left`, `1` and `F9` in the active layout instead of `KeyInterop` names like `D1` or `OemTilde`. Names too long for the custom key row (`Caps Lock`, `Page Up`, `Backspace`, ...) are replaced by keycap short names from `s_shortKeyNames`, keyed by virtual key because layout names are localized. The checkbox label also truncates with an ellipsis for anything unlisted.
 
 **Movement** is one to four outward relative slides of 60–1200 px. The direction is a Gaussian around horizontal with a fifth of the slides thrown anywhere, so the angle histogram has no hard edges and no empty vertical band, and the cursor only wanders back to the start about six times in ten, because always returning is a pattern a position series shows up immediately. Each slide follows a cubic curve with a random bend near each end, walked in 3–9 px steps, so a long sweep gets hundreds of them. `Ease` shapes the speed with a random sharpness, every step's delay is jittered around the slide's own duration, Gaussian tremor scaled to the step size lands on all but the last step, and a step in the middle of a sweep occasionally hesitates. `Task.Delay` resolves to about a millisecond on .NET 8 and later, which is what makes the fine steps worth sending. Every slide is clamped by `KeepInside` to the foreground window's rectangle less a margin, so the cursor never wanders onto another monitor or the taskbar; a window too small to hold the margin is left alone. It cancels on Stop; nothing can get stuck.
 
@@ -186,7 +168,7 @@ The hooks are never uninstalled. Windows removes them when the process exits.
 
 ## Switch To Game
 
-- **Picker.** The combo box binds `AvailableGames`, a list of process key → display name pairs, with `DisplayMemberPath="Value"`, `SelectedValuePath="Key"` and `SelectedValue` on `SelectedGameKey`. An empty key is Automatic. Settings store the key, never the display name. A key restored before the scan finishes waits inside the combo box until its item arrives; one that never arrives falls back to Automatic in `LoadAvailableGamesAsync`.
+- **Picker.** A `MudSelect` over `AvailableGames`, a list of process key → display name pairs, with `SelectedGameKey` as its value and `GameNameOf` turning the key back into its name. An empty key is Automatic. Settings store the key, never the display name. A key restored before the scan finishes waits until its item arrives; one that never arrives falls back to Automatic in `LoadAvailableGamesAsync`, which raises `Changed` so the select redraws.
 - **Focus.** `GameWindowFocus.TryFocusGameWindow` finds the picked game, or with Automatic the first process with a main window whose key the scanner knows, in whatever order `Process.GetProcesses` returns (two running games pick one arbitrarily), foregrounds it and returns that key. It keeps that `Process`, so `IsForeground` is one `GetWindowThreadProcessId` and `IsRunning` is one `HasExited` instead of a fresh snapshot of every process per simulation. `Finish` calls `Forget`. `ShowWindow(SW_RESTORE)` runs only when `IsIconic` says the game is minimised, and brings it back maximised if it was. On a window that is not minimised `SW_RESTORE` un-maximises it, which 1.5 did to every maximised windowed game on every focus. Foregrounding needs `BringWindowToTop` plus `SetForegroundWindow`, retried inside `AttachThreadInput` when Windows refuses; leave it alone unless tested against a real game.
 - **Pre-select.** With Automatic, `FocusGame` pins the found key into `SelectedGameKey` and sets `_isGameAutoSelected`. `Finish` puts Automatic back, `SaveSettings` never persists a pinned game, and any user pick clears the flag through `OnSelectedGameKeyChanged`.
 - **Guard.** `ExecuteSimulationAsync` skips the whole simulation and logs `Skipped Game Not Focused` unless `GameWindowFocus.IsForeground` matches the target. With Automatic and no game found there is no target, so nothing is sent.
@@ -235,126 +217,65 @@ Added here and **still to port back** to Adrenalize:
 
 The scan runs once per process, well under a second. Games installed while the app runs are not picked up.
 
-## Update Checking
+## Updates
 
-`UpdateChecker.CheckAsync` sends one non-redirecting `GET` to the GitHub `releases/latest` URL, reads the tag from the `Location` header and returns `(Latest, ReleaseUrl)` only when that tag is newer, `null` otherwise. No token, no JSON, no User-Agent; github.com answers the redirect without one. Every exception returns `null`; a failed check must never interrupt a run. The startup check is silent when up to date; the title bar button reports either way.
+Taken from `SoTF.Editor`. `Updater.CheckAsync` reads the `releases/latest` redirect without following it, so it needs no token. It runs on every start and from **Help → Check for Updates**; a newer version opens `UpdateDialog` and leaves a red dot on Help and on Check for Updates until restart. What Changed lists every commit title since the installed build through the compare API (`AppInfo.CompareApiUrl`, from the `Commit` stamp); a build without one shows the release body, and no notes hide the list.
+
+Update Now hides the X and Escape until the download fails or the window closes (`SetClosableAsync`), while `MainWindow.IsUpdating` explains a close. `Updater.DownloadAsync` saves `AFKAssist_<tag>.exe` beside the running exe through a `.download` file that must match the asset's SHA-256 `digest` from the release API; a mismatch or a missing digest opens the release page instead, and so does a protected folder or a Debug build (`Updater.CanInstall` wants an exe named `AFKAssist_v*`). Before launching the new exe the dialog stops any run, so no key is left held. The new exe runs `Updater.FinishPreviousVersion` before the single instance check: it waits up to 15 s for the old process and deletes every other `AFKAssist_v*.exe` beside it. Build with `-p:Version=0.9` to see the dialog.
 
 ## Run Logs And Settings
 
-`RunLog` writes `Documents\AFK Assist\Logs\Run yyyy-MM-dd HH-mm-ss.txt`. `Open` holds one `StreamWriter` with `AutoFlush` for the whole run, so a crash still leaves every line on disk without reopening the file per line; `Close` ends it. The file keeps milliseconds; the screen shows seconds. `RetentionDays` (30) lives here. `MainViewModel`'s constructor runs `DeleteExpired` through `Task.Run`, which removes `Run *.txt` files whose last write is older than that. Clear Log Files asks first, then deletes every run file. Every call swallows its exceptions, and a file held open elsewhere simply stays.
+`RunLog` writes `Documents\AFK Assist\Logs\Run yyyy-MM-dd HH-mm-ss.txt`. `Open` holds one `StreamWriter` with `AutoFlush` for the whole run, so a crash still leaves every line on disk without reopening the file per line; `Close` ends it. The file keeps milliseconds; the screen shows seconds. `RetentionDays` (30) lives here. `MainViewModel`'s constructor runs `DeleteExpired` through `Task.Run`, which removes `Run *.txt` files whose last write is older than that. Clear Logs asks first, then deletes every run file. Failures that are not part of a run (the page, a background task, the updater, a shell launch) go to `Logs\Errors.txt` through `WriteError`, with the exception type only. Every call swallows its exceptions, and a file held open elsewhere simply stays.
 
-`UserSettings` is a record with `Load` and `Save` on it, because the record is what gets loaded and saved. It holds everything the window shows, plus the window's own spot, and it writes `%AppData%\AFK Assist\settings.json` from the window's `Closing` handler. Nothing saves earlier, so a crash or a `Stop-Process` loses every edit since launch. `WindowLeft` and `WindowTop` are plain view model properties rather than bound ones; the window fills them in on close and reads them back in its constructor, and a spot whose title bar centre no longer lands on a monitor falls back to `CenterScreen`. Missing properties in an older file fall back to their defaults, which is `false` except for `Randomize`, whose parameter default of `true` keeps a 1.3 file from switching it off. `RestoreSettings` clamps every number to the same limits the window uses, sets Run Until before the boxes because the mode converts them, and the constructor clears the log afterwards because restoring is not activity.
+`UserSettings` is a record with `Load` and `Save` on it, because the record is what gets loaded and saved. It holds everything the window shows, plus the window's own spot, and it writes `%AppData%\AFK Assist\settings.json` from the window's `Closing` handler. Nothing saves earlier, so a crash or a `Stop-Process` loses every edit since launch. The record and the release folder name are unchanged since 1.6, so an update keeps every setting. `WindowLeft` and `WindowTop` are plain view model properties; the window fills them in on close (only while it is in its normal state) and reads them back in its constructor, and a spot whose title bar centre no longer lands on a monitor falls back to `CenterScreen`. Missing properties in an older file fall back to their defaults, which is `false` except for `Randomize`, whose parameter default of `true` keeps a 1.3 file from switching it off. `RestoreSettings` clamps every number to the same limits the page uses, sets Run Until before the boxes because the mode converts them, and the constructor clears the log afterwards because restoring is not activity.
 
 ## UI Conventions
 
-The window is `ui:FluentWindow` with `ExtendsContentIntoTitleBar` and Mica. `SystemThemeWatcher.Watch(this)` applies the Windows theme and accent on the first call and follows both live; Mica and accent updates are its defaults. `WindowBackdropType="Mica"` stays in XAML because the watcher only reapplies the backdrop on a theme change. `Background` and `Foreground` come from the FluentWindow style. The accent drives checked boxes, toggles, the primary button, the slider, the progress bar and the active preset chip; on a machine with a grey Windows accent they are all grey, which is correct.
+The look is `SoTF.Editor`'s: `Theming/AppTheme` and the stylesheet's tokens and MudBlazor overrides are copied from it, trimmed to what this page uses. One page, `Components/Home`, is the root component; there is no router, layout or navigation.
 
-Control ladder, first rung that works wins: a WPF-UI control (`ui:Card`, `ui:Button`, `ui:TextBlock`, `ui:ToggleSwitch`, `ui:NumberBox`, `ui:InfoBar`, `ui:ImageIcon`), then a plain WPF control WPF-UI restyles (`CheckBox`, `Slider`, `ComboBox`, `ProgressBar`, `ScrollViewer`, `ItemsControl`), then a `Style` or inline property. The root `Grid.Resources` holds four entries and no more: the keyed `ChipButton` style and an implicit `ui:NumberBox` style, both `BasedOn` the WPF-UI defaults, plus the `ChipRow` panel and `PresetChip` template that both preset lists share. The one converter is reached through `{x:Static}`, not a resource.
+- **Layout.** A 55 px glass app bar holds the name and the Help menu (GitHub Project, Check for Updates, About) on the left, and on the right a Running or Paused chip, Stop, and the primary button at the edge (Start, Pause, Resume). Under it three columns, each a `Header` over raised cards (`Elevation="4"`, `rounded-panel pa-4`): Input and Options (360 px), Timing with Speed, Start Delay and Duration (360 px), and Run with `TimePanel` above Activity, which takes the rest and fills to the bottom gutter.
+- **Window.** A plain WPF `Window`, 1200 x 760 DIP, `ResizeMode="CanMinimize"`, `Topmost`, background `#202020` like the WebView, with the dark caption from `WindowCaptionTheme`. `CanMinimize` alone removes the resize border and maximize; nothing else is needed now that WPF-UI's chrome is gone. On a work area smaller than that the window shrinks to fit, and `page-fill`'s minimum of 1130 x 580 px makes the page scroll both ways instead of squeezing the columns. Checked at 1186 x 723 (125%), 1186 x 691 and 1186 x 643 at 100%, and 1000 x 560.
+- **Options** is one card: Switch To Game with the game `MudSelect` full width under it (`game-select` sets its text to label size), then Randomize and Hold Keys Longer, split by dividers. Each switch carries an `InfoIcon` saying what it does.
+- **Run mode** is a `MudSwitch` between `Run For` and `Run Until` at the bottom of the Duration card, with `EndsAtLabel` on the right of the same row.
+- **Limits** are `public const int` on `MainViewModel`, read straight from the markup. Only the Hours maximum is a property, because it switches between 8 and 23 with the run mode. `RestoreSettings` clamps against the same constants. Every number field is `NumberField`, whose wrapper greys the spin button at a limit.
+- **Presets** are `Preset` records of value, label and an `IsStartDelay` flag, drawn by `PresetRow` as small filled buttons, the active one `Color.Info` (tonal in CSS). `MainViewModel.IsPresetActive` compares against the total its flag names, and `DurationTotalMinutes` is `-1` in Run Until mode so no clock preset lights up. `PresetRow` hands the pick back through `OnPicked`, so the page re-renders and the fields show the new value.
+- **UI text** is short Title Case with no ending punctuation; tooltips and dialog prose are short sentences. Units are one letter hugging the number (`15m`, `3m 12s`).
+- **Log messages** lead with a past-tense verb: `Pressed W Key`, `Enabled Switch To Game`, `Failed To Focus Game`, `Skipped Game Not Focused`. Errors log the exception type, not its message.
+- **The Activity log** is a plain list of `LogEntry` rows in a `panel-flush` paper, coloured through `LogKindColors`. `log-scroll` is a `column-reverse` flex box, so the browser keeps it on the newest row with no script, and leaves it alone once scrolled back. The 150-row cap keeps it small; the run file on disk keeps everything. An empty log shows `No Activity Yet`.
+- **Notices** are one `MudAlert` above the log, from `MainViewModel.Notice`. Validation sets an error (`Select At Least One Input`, or `Set A Duration` in Run For mode). Switching Randomize off sets the `Randomize Off Raises Detection Risk` warning, and switching it back on clears exactly that message. `Start` clears any notice.
+- **Dialogs** close with their X, except `ConfirmAsync` (Clear Logs), which keeps No and Yes.
 
-XAML: `<!-- Name -->` comments above a group, naming its main element only. One attribute per line, aligned under the first.
+Load-bearing pieces:
 
-- **Layout.** Mouse and Keyboard checkboxes sit in the Input card, Move Mouse among the mouse ones, and every on/off behaviour is a toggle in the Options card. The Keyboard column's five rows set the shared row's height, and the Options card stretches to it. The window is 840 DIP wide: a 16 DIP outer margin, a 360 DIP column of cards on the left, 12 DIP gaps everywhere, and the Activity card taking the rest. At 125% it captures at 1050 x 1033 px.
-- **Run mode** is a `ui:ToggleSwitch` between two labels, `Run For` and `Run Until`, at the bottom of the Duration card, with `EndsAtLabel` right-aligned in the same row.
-- **Limits** are `public const double` on `MainViewModel`, bound with `{x:Static}`. Only the Hours maximum is a binding, because it switches between 8 and 23 with the run mode. `RestoreSettings` clamps against the same constants.
-- **Presets** are `Preset` records of value, label and an `IsStartDelay` flag, so both lists share one `PresetChip` template and one `ApplyPresetCommand`. `StartDelayPresets` is fixed; `DurationPresets` swaps with the run mode, from durations to clock jumps where `0` means the next midnight. A chip's `Appearance` is a `MultiBinding` of the preset and both totals, and `PresetAppearanceConverter` picks the one the flag names. `DurationTotalMinutes` is `-1` in Run Until mode so no chip lights up there.
-- **Tooltips** only on the icon-only update button, where it is the label. Every unlabelled input carries `AutomationProperties.Name`.
-- **UI text** is short Title Case with no ending punctuation. Units are one letter hugging the number (`15m`, `3m 12s`).
-- **Log messages** lead with a past-tense verb: `Pressed W Key`, `Enabled Switch To Game`, `Failed To Focus Game`, `Skipped Game Not Focused`. Errors log the exception type, not its message, which is not Title Case and often ends in a full stop.
-- **The Activity log** is an `ItemsControl` inside a `ScrollViewer`, bound to `ObservableCollection<LogEntry>`. There is no selection or hover chrome to strip, and the 150-row cap keeps the un-virtualized list small enough that it never needs a templated `ScrollViewer`; the run file on disk keeps everything. Each entry's `LogKind` colours its message through `DynamicResource` theme brushes, and the timestamp is its own `Auto` column. An empty log shows `No Activity Yet` through a `DataTrigger` on `LogEntries.Count`.
-- **Notices** go through one `ui:InfoBar` that cannot be closed. Validation sets an Error: `Select At Least One Input`, or `Set A Duration` in Run For mode. Switching Randomize off sets the `Randomize Off Raises Detection Risk` warning, and switching it back on clears exactly that message. `Start` clears any notice.
-
-Load-bearing XAML:
-
-- **Number boxes bind with `UpdateSourceTrigger=PropertyChanged`.** `ui:NumberBox.Value` defaults to `LostFocus`, and neither its spin buttons nor a click on `ui:Button` move focus out of the box, so the value never reached the view model. The backing properties are `double?` because an emptied box reports `null`; every read coalesces with `?? 0`. The implicit style sets `MaxDecimalPlaces="0"`, since the default of 6 accepts `1.5` hours.
-- **The Input and Options cards share one `Auto` row**, both `VerticalAlignment` and `VerticalContentAlignment` set to `Stretch`. That makes them equal height with headers on one line. `ui:Card` defaults its content to `Center`; `Top` does not fix that, `Stretch` does.
-- **The custom key checkbox is disabled until a key is picked**, which is why `CustomKeyEnabled` alone means a usable key everywhere in the view model.
-
-Load-bearing code-behind:
-
-- **The tray icon comes from the `WPF-UI.Tray` package**, reached through the `tray` clr-namespace because it has no xmlns of its own. Minimising hides the window, a left click or Open shows it again, and Exit closes it so `Closing` still saves. Its `ContextMenu` lives outside the visual tree and inherits no `DataContext`, so the code-behind sets one.
-- **Log autoscroll is posted.** `ScrollToEnd` straight from `CollectionChanged` runs before the new row is measured and stops one row short. Keep the `Dispatcher.BeginInvoke(DispatcherPriority.Background, ...)`.
-- **The view model is constructed in code-behind.** `d:DataContext` is design-time only.
-- **The window cannot be resized or maximized.** `ResizeMode="CanMinimize"` drops the maximize style, and the title bar needs `CanMaximize="False"` and `ShowMaximize="False"` as well, because WPF-UI draws its own buttons and handles double clicks itself. Neither stops resizing: `FluentWindow` keeps a 4 px `WindowChrome` resize border for anything but `NoResize`, and `TitleBar` answers `WM_NCHITTEST` with edge codes of at least 2 px whatever `ResizeMode` says. Only the `MinWidth`, `MaxWidth`, `MinHeight` and `MaxHeight` that `LockSizeToContent` pins to the measured size hold, because the sizing loop obeys `WM_GETMINMAXINFO`. The edges still show a resize cursor.
-- **The window sizes itself once and then stays fixed.** It opens with `SizeToContent="Height"` and `LockSizeToContent` switches to manual, capped at the work area so a small screen scrolls the configuration instead. The lock is posted at `Background` priority and re-applies `SizeToContent` first, because `ui:InfoBar` is still measured open on the first pass; locking straight from `Loaded` leaves a 34 DIP gap above the Time card. A hard-coded height only fits one DPI: layout rounding makes the left column a few DIP taller at 100% than at 125%. Nothing changes the size after that.
-- **The notice `ui:InfoBar` sits in the Activity card**, above the log, so showing it shrinks the log and never resizes the window.
-- **Custom key capture** runs on the button's `PreviewKeyDown` only while `IsCapturingCustomKey` is set. `Key.System` is unwrapped for Alt combinations, bare modifiers (the consecutive Shift, Ctrl and Alt range plus both Windows keys) are ignored, Escape cancels, and `LostKeyboardFocus` cancels too.
-
-The notice `ui:InfoBar` is invisible to UI Automation. Check it with a screenshot.
+- **The tray is a WinForms `NotifyIcon`** with the native dark menu from `WiFiWatch` (`TrayMenu`): Start, Pause or Resume, Stop, Open, Exit. Minimising hides the window, a left click or Open shows it again, and Exit closes it so `Closing` still saves. A second launch signals the first through a named `EventWaitHandle` and only shows it.
+- **Closing stops the run, then saves.** `Stop` logs the summary and closes the run file; the close button still exits the app with no Keep Running dialog.
+- **Custom key capture** is `afkShell.captureKey` in `AppShell.js`: the next `keydown` anywhere in the page resolves with its `keyCode`, which is the Windows virtual key. Bare Shift, Ctrl, Alt and Windows keys are skipped, Escape, a click or the window losing focus cancel with `0`. The custom key checkbox is disabled until a key is picked, which is why `CustomKeyEnabled` alone means a usable key everywhere in the view model.
+- **WebView2** keeps its profile in `%AppData%\AFK Assist\WebView2`, has its browser keys and zoom off, and paints `#202020` before the first frame.
 
 ## Verifying Changes By Hand
 
-There is no UI test harness. **Ask before launching the app** on this machine: it is `Topmost`, restores and foregrounds games, and injects real input.
+There is no UI test harness. **Ask before launching the app** on this machine: it is `Topmost`, restores and foregrounds games, and injects real input. Check no other copy is running first.
 
-- **Screenshots** — `PrintWindow` with flag `2` against the window handle, after `SetProcessDPIAware` so the capture is not cropped.
-- **Driving the UI** — `System.Windows.Automation` from Windows PowerShell. Buttons expose `InvokePattern`, checkboxes and toggles `TogglePattern`, the slider `RangeValuePattern`, number boxes `ValuePattern`, and the game picker `ExpandCollapsePattern` with `SelectionItemPattern` on its items.
+- **Looking at it** — start the Debug exe with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333` and drive it over the Chrome DevTools Protocol from a small Node script: `http://127.0.0.1:9333/json` lists the page, `Page.captureScreenshot` captures it, `Runtime.evaluate` clicks. `PrintWindow` captures WebView2 black. `Emulation.setDeviceMetricsOverride` checks smaller windows, and lasts only while its WebSocket stays open.
+- **Driving the UI** — checkboxes and switches are `label` elements whose `input` takes a `.click()`; the slider is an `input[type=range]` that needs its value set through the `HTMLInputElement` setter plus `input` and `change` events; buttons are found by their text (`Start`, `15m`, `Clear Logs`), the Help menu by `aria-label`.
 - **Keystrokes landing** — count characters in a focused Notepad. Injected holds do not auto-repeat, so a 3 s hold types one character; games poll key state and still see it held.
 - **A stand-in game** — copy `powershell.exe` to a known process key such as `overwatch.exe` and run a WinForms form with a `TextBox`. The scanner already knows the key, so focus, pre-select and the foreground guard can be tested without a real game.
-- **Focus without the UI** — compile `Services/GameWindowFocus.cs` and `Services/GameScanner.cs` into a throwaway console project, start a stand-in under a unique name with a maximised WinForms form, and call `TryFocusGameWindow` with that key. `IsZoomed` must stay true, and after `ShowWindow(SW_MINIMIZE)` a second call must bring it back maximised. Passing the key skips the disk scan.
+- **Focus without the UI** — a file-based app on `AFKAssist.Services` can call `GameWindowFocus.TryFocusGameWindow` with a stand-in's key on a maximised WinForms form. `IsZoomed` must stay true, and after `ShowWindow(SW_MINIMIZE)` a second call must bring it back maximised. Passing the key skips the disk scan.
 - **Hooks** — a throwaway console app can install the same hooks, send one injected mouse move and pump messages; the callback must fire and see the injected flag.
-- **Auto pause** cannot be triggered from a script, because scripted input is injected and ignored by design. It needs a real hand on the mouse.
-- **UI Automation names.** Toggles and checkboxes are named by their content (`W Key`, `Switch To Game`, `Randomize`), preset chips by their label (`5s`, `1h`), and the primary button by its current label (`Start`, `Pause`, `Resume`). Find the slider by `ControlType.Slider`, because the name `Speed` hits the card header first. The custom key checkbox holds a `TextBlock` and has no name.
-- **Fixed size.** Drag the right and bottom edges with `SetCursorPos` and `mouse_event`, and compare `GetWindowRect` before and after; nothing may change (1050 x 1033 px at 125%). v1.4 grew to 1300 x 1183 under the same drag.
-- **Screenshots.** `Screenshots/Idle.png` and `Running.png` are `PrintWindow` captures of a Debug build. Idle has W Key and Move Mouse checked, Switch To Game and Randomize on, Speed 5, the `5s` and `1h` presets and an empty log. Every toggle change logs a line, so set the state, close, and capture on a second launch. Running has Switch To Game off with no game open, so input lands on AFK Assist itself, Speed 10 and `15m`. Foreground the window, Start, poll the log until about nine input lines, then capture. Stop at once if the foreground changes, since input would reach another window.
-- **Session launches.** A Debug build started from a session keeps `settings.json` in the MSIX container, but `Documents` is not redirected, so every test run leaves a real `Run *.txt` under `Documents\AFK Assist\Logs`. Remove those afterwards.
-
-## Comment Style
-
-Comments are very short and clear, a couple of words, at most eight to ten when genuinely needed. Never multi-line. Every word starts with a capital letter. No ending punctuation. Always on their own line above the code they describe.
-
-In C#, comments are allowed only inside method bodies or above a group of related fields or properties. No XML documentation comments. No comments on view models, models, services, interfaces or class declarations. No comments in `.csproj` files. Never comment obvious code, and never write a comment that explains something to the reader of this file rather than to the reader of the code.
-
-In markup, comment only above a group or chunk of elements, and the comment holds the name of that group's main element and nothing else. XAML uses `<!-- Name -->`, Razor uses `@* Name *@`. Never comment above text, parameters, bindings, individual attributes or small markup fragments, and never write a descriptive markup comment.
-
-```
-@* Records Table *@
-<MudTable>
-...
-</MudTable>
-```
-
-## Code Style
-
-Full descriptive names for variables, fields, properties and methods. No abbreviations, no single letters: `settings`, not `s`; `configuration`, not `cfg`; `cancellationToken`, not `ct`. This covers regex capture groups, tuple elements and lambda parameters too.
-
-`var` for locals, as `.editorconfig` asks. Write the type only when the right-hand side does not carry it: a target-typed `new()`, a collection expression, a declaration without an initializer, or a bare `null`.
-
-```csharp
-var executableName = Path.GetFileNameWithoutExtension(executablePath);
-HashSet<string> processNames = new(StringComparer.OrdinalIgnoreCase);
-List<string> roots = [];
-string? bestExecutablePath = null;
-```
-
-`#region` blocks wrap methods only, never fields or properties, and only when there would be two or more. No blank line directly after `#region` or directly before `#endregion`; one blank line before `#region` and one after `#endregion`.
-
-```
-#region
-<SomeMethod>
-#endregion
-```
-
-UI strings follow the comment rules: short, every word capitalized, no ending punctuation. That covers labels, titles, helper text, validation messages and localization text. "Select At Least One Input", not "Please select at least one input."
-
-Control choice runs down a ladder, first rung that works wins. In Blazor: MudBlazor, then Bootstrap classes, then a MudBlazor component's `Style`, then custom CSS; `MudElement` beats plain HTML, and plain HTML is last. The WPF equivalent is in [UI Conventions](#ui-conventions).
-
-Razor components keep their logic in the code-behind. Never open an `@code` block in a `.razor` file when a `.razor.cs` exists beside it.
-
-## Before Making Changes
-
-Read every file the change touches first: code-behind, services, models, interfaces, registrations and the project file. Do not assume the architecture.
+- **Auto pause** cannot be triggered from a script, because scripted input is injected and ignored by design. It needs a real hand on the mouse; a test run while someone uses the PC shows `Paused By Input` and `Resumed After Idle` on its own.
+- **Screenshots.** `Screenshots/Idle.png` and `Running.png` are CDP captures of a Debug build at 1186 x 723 and scale 1.25. Idle has W Key and Move Mouse checked, Switch To Game and Randomize on, Speed 5, the `5s` and `1h` presets and an empty log. Every toggle change logs a line, so set the state, close with `CloseMainWindow` so it saves, and capture on a second launch. Running has Switch To Game off with no game open, so input lands on AFK Assist itself, Speed 10 and `15m`. Foreground the window and confirm it is foreground, Start, wait about a minute, capture, Stop, and confirm the foreground never changed.
+- **Session launches.** A Debug build keeps its settings and WebView2 profile in `AFK Assist Debug` inside the MSIX container, but `Documents` is not redirected, so every test run leaves real files under `Documents\AFK Assist Debug\Logs`. Remove that folder afterwards.
 
 ## Things That Look Wrong But Are Not
 
-- `Stop` has `CanExecute = nameof(IsRunning)` while Start/Pause has none, so the primary button stays live as Pause and Resume.
+- The Start button has no disabled state while Stop does: it stays live as Pause and Resume.
 - `RunClockAsync` still ticks at 250 ms for auto pause but only refreshes the labels when the second changes, and `EndsAtLabel` only when its minute does. A tick that changes nothing raises nothing.
 - `BuildActions` is a plain list of `if`s rather than a collection expression. It reads in the same order as the checkboxes and allocates two objects instead of ten, on a path that runs per simulation.
 - `TryValidateConfiguration` asks `BuildActions` whether anything would fire instead of repeating the checkbox list, so validation and the run can never disagree.
 - Randomize both shuffles the actions and keeps a random slice of them, so one simulation may press a single key and the next may click and glide. Every enabled input still runs often enough over a minute.
-- `CheckForUpdatesAsync` takes a `bool?`. The title bar button passes nothing and the constructor passes `true`, because a `RelayCommand` cannot turn a XAML string into a `bool`.
 - `DiscoverSteamGameRoots` lets `First(Directory.Exists)` throw when Steam is missing; the source's own `try` turns that into no Steam games.
-- `OnRunUntilEnabledChanged` raises `HoursMaximum` by hand before moving the boxes. The generated notification fires only after the partial method, and the Hours box would otherwise clamp a clock hour of 17 to the old maximum of 8.
 - `catch` blocks that swallow everything in `GameScanner`, `RunLog` and `UserSettings` are deliberate. A missing path means "not installed", and a log or settings file must never take the app down.
-- The WASD checkboxes have no fixed text. Their labels are read from the active keyboard layout, so an Azerty user sees Z and Q.
-- `dotnet format analyzers` reports CA1822 for `StartDelayPresets` and the four WASD label properties. They stay instance members: XAML binds them through the `DataContext`, and the layout-change handler refreshes them all with `OnPropertyChanged(string.Empty)`, which a static property would miss. These five infos are expected.
+- The WASD checkboxes have no fixed text. Their labels are read from the active keyboard layout, so an Azerty user sees Z and Q. The four labels and `StartDelayPresets` are static; the page reads them through the injected `MainViewModel`, which C# allows because the property shares the type's name.
+- `RefreshKeyNames` runs on every window activation and re-renders the page. It is the only moment a layout switch made in another window can show up, and it is cheap.
 - The close button exits the app, even mid-run, with no Keep Running dialog; minimising is how it goes to the tray. Closing is also the only thing that saves settings.
 - `RunLog` deletes its own run files after 30 days. That predates the rule against retention jobs and stays, because they are throwaway logs rather than user data.
