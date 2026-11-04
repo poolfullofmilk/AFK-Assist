@@ -208,7 +208,7 @@
                             <MudElement HtmlTag="div"
                                         Class="game-select">
                                 <MudSelect T="string"
-                                           Value="MainViewModel.SelectedGameKey"
+                                           Value="@MainViewModel.SelectedGameKey"
                                            ValueChanged="value => MainViewModel.SelectedGameKey = value"
                                            ToStringFunc="GameNameOf"
                                            Variant="Variant.Outlined"
@@ -220,7 +220,7 @@
                                            Disabled="@(IsLocked || !MainViewModel.SwitchToGameEnabled)">
                                     @foreach (var game in MainViewModel.AvailableGames)
                                     {
-                                        <MudSelectItem Value="game.Key">@game.Value</MudSelectItem>
+                                        <MudSelectItem Value="@game.Key">@game.Value</MudSelectItem>
                                     }
                                 </MudSelect>
                             </MudElement>
